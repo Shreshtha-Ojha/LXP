@@ -8,7 +8,10 @@ const db = require('../../db')
 /**
  * Check if a user has a specific permission.
  *
- * @param {object} user          - Authenticated user object { id, tenantId, roles[] }
+ * D-008: active role switching — permissions are evaluated against the
+ * user's active role only, not every role they hold.
+ *
+ * @param {object} user          - Authenticated user object { id, tenantId, roles[], activeRoleId, activeRole }
  * @param {string} action        - view | create | edit | approve | configure | administer
  * @param {string} module        - e.g. 'learning', 'users', 'assessments'
  * @param {string} feature       - e.g. 'catalog', 'assignments', 'bulk_upload'
@@ -19,22 +22,24 @@ async function hasPermission(user, action, module, feature) {
 
   // Super admins have all permissions — but their actions are always audit logged
   // (audit logging happens in the middleware, not here)
-  const isSuperAdmin = user.roles?.includes('super_admin')
-  if (isSuperAdmin) return true
+  if (user.activeRole === 'super_admin') return true
+
+  if (!user.activeRoleId) return false
 
   const result = await db.query(
     `SELECT 1
      FROM user_roles ur
      JOIN role_permissions rp ON rp.role_id = ur.role_id
      JOIN permissions p       ON p.id = rp.permission_id
-     WHERE ur.user_id = $1
-       AND p.module   = $2
-       AND p.feature  = $3
-       AND p.action   = $4
+     WHERE ur.user_id  = $1
+       AND ur.role_id  = $2
+       AND p.module    = $3
+       AND p.feature   = $4
+       AND p.action    = $5
        AND (ur.effective_from IS NULL OR ur.effective_from <= CURRENT_DATE)
        AND (ur.effective_to   IS NULL OR ur.effective_to   >= CURRENT_DATE)
      LIMIT 1`,
-    [user.id, module, feature, action]
+    [user.id, user.activeRoleId, module, feature, action]
   )
 
   return result.rows.length > 0
@@ -58,25 +63,25 @@ async function getVisibilityScope(user) {
     return { type: 'none', orgUnitIds: [] }
   }
 
-  const roles = user.roles || []
+  const activeRole = user.activeRole
 
   // Super admin and L&D admin see everything
-  if (roles.includes('super_admin') || roles.includes('ld_admin')) {
+  if (activeRole === 'super_admin' || activeRole === 'ld_admin') {
     return { type: 'all', orgUnitIds: null }
   }
 
   // HR admin sees org-wide talent/workforce data (scoped by HR config in future)
-  if (roles.includes('hr_admin')) {
+  if (activeRole === 'hr_admin') {
     return { type: 'org', orgUnitIds: null }
   }
 
   // Executive sees org-wide aggregated data
-  if (roles.includes('executive')) {
+  if (activeRole === 'executive') {
     return { type: 'org', orgUnitIds: null }
   }
 
   // Reporting manager sees own record + direct reports' org units
-  if (roles.includes('reporting_manager')) {
+  if (activeRole === 'reporting_manager') {
     const directReports = await db.query(
       `SELECT up.org_unit_id
        FROM user_profiles up
@@ -96,12 +101,12 @@ async function getVisibilityScope(user) {
   }
 
   // Program manager sees their assigned projects (placeholder — full impl in Release 3)
-  if (roles.includes('program_manager')) {
+  if (activeRole === 'program_manager') {
     return { type: 'team', orgUnitIds: [user.orgUnitId].filter(Boolean) }
   }
 
   // External users see nothing unless explicitly assigned
-  if (roles.includes('external')) {
+  if (activeRole === 'external') {
     return { type: 'assigned_only', orgUnitIds: [] }
   }
 
@@ -138,7 +143,7 @@ function requirePermission(action, module, feature) {
         [
           user.tenantId,
           user.id,
-          user.roles?.join(','),
+          user.activeRole,
           `${module}.${feature}`,
           req.ip,
           JSON.stringify({ method: req.method, path: req.path, action })

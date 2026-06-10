@@ -19,7 +19,8 @@ const { AuditActions } = auditLog
 const FALLBACK_TENANT_ID = process.env.INTERNAL_TENANT_ID
 
 /**
- * Look up a user by email along with their currently-active role names.
+ * Look up a user by email along with their currently-active role names and
+ * IDs (parallel arrays — both ordered by role name so indexes correspond).
  * Login cannot be scoped by tenant_id (Rule 3) because the tenant isn't
  * known until the user is identified — this lookup is the one place that
  * establishes it.
@@ -28,9 +29,13 @@ async function findUserByEmail(email) {
   const result = await db.query(
     `SELECT u.id, u.tenant_id, u.email, u.password_hash, u.status,
             COALESCE(
-              array_agg(r.name) FILTER (WHERE r.name IS NOT NULL),
+              array_agg(r.name ORDER BY r.name) FILTER (WHERE r.name IS NOT NULL),
               ARRAY[]::text[]
-            ) AS roles
+            ) AS roles,
+            COALESCE(
+              array_agg(r.id ORDER BY r.name) FILTER (WHERE r.id IS NOT NULL),
+              ARRAY[]::uuid[]
+            ) AS role_ids
      FROM users u
      LEFT JOIN user_roles ur ON ur.user_id = u.id
        AND (ur.effective_from IS NULL OR ur.effective_from <= CURRENT_DATE)
@@ -56,6 +61,42 @@ async function getSessionExpiry(tenantId) {
   )
   const minutes = result.rows[0]?.value?.value
   return minutes ? `${minutes}m` : process.env.JWT_EXPIRES_IN
+}
+
+/**
+ * D-008: a user with multiple roles explicitly switches their active role.
+ * On login, default to their existing choice (user_active_roles), or — for
+ * a first-time multi-role login — the lowest-privilege role per the
+ * configurable auth.active_role_priority order.
+ *
+ * @returns {{ roleId: string|null, roleName: string|null, isNew: boolean }}
+ *          isNew is true when user_active_roles has no row yet and one
+ *          should be inserted as part of the login transaction.
+ */
+async function resolveActiveRole(user) {
+  if (user.roles.length <= 1) {
+    return { roleId: user.role_ids[0] || null, roleName: user.roles[0] || null, isNew: false }
+  }
+
+  const existing = await db.query(
+    `SELECT role_id FROM user_active_roles WHERE user_id = $1`,
+    [user.id]
+  )
+  const existingIndex = user.role_ids.indexOf(existing.rows[0]?.role_id)
+  if (existingIndex !== -1) {
+    return { roleId: existing.rows[0].role_id, roleName: user.roles[existingIndex], isNew: false }
+  }
+
+  const priorityResult = await db.query(
+    `SELECT value FROM configurations
+     WHERE tenant_id = $1 AND module = 'auth' AND key = 'active_role_priority'`,
+    [user.tenant_id]
+  )
+  const priorityOrder = priorityResult.rows[0]?.value?.value || []
+
+  const defaultRoleName = priorityOrder.find((name) => user.roles.includes(name)) || [...user.roles].sort()[0]
+  const defaultIndex = user.roles.indexOf(defaultRoleName)
+  return { roleId: user.role_ids[defaultIndex], roleName: defaultRoleName, isNew: true }
 }
 
 async function recordLoginFailure({ tenantId, user, email, ipAddress, userAgent, reason }) {
@@ -106,9 +147,11 @@ async function login({ email, password, ipAddress, userAgent }) {
     return { ok: false, status: 401, error: 'Invalid email or password' }
   }
 
+  const activeRole = await resolveActiveRole(user)
+
   const expiresIn = await getSessionExpiry(user.tenant_id)
   const token = jwt.sign(
-    { userId: user.id, tenantId: user.tenant_id },
+    { userId: user.id, tenantId: user.tenant_id, activeRoleId: activeRole.roleId },
     process.env.JWT_SECRET,
     { expiresIn }
   )
@@ -118,6 +161,14 @@ async function login({ email, password, ipAddress, userAgent }) {
     await client.query('BEGIN')
 
     await client.query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [user.id])
+
+    if (activeRole.isNew) {
+      await client.query(
+        `INSERT INTO user_active_roles (user_id, role_id) VALUES ($1, $2)
+         ON CONFLICT (user_id) DO NOTHING`,
+        [user.id, activeRole.roleId]
+      )
+    }
 
     await auditLog.write({
       tenantId: user.tenant_id,
@@ -142,7 +193,9 @@ async function login({ email, password, ipAddress, userAgent }) {
   return {
     ok: true,
     token,
-    user: { id: user.id, tenantId: user.tenant_id, email: user.email }
+    user: { id: user.id, tenantId: user.tenant_id, email: user.email },
+    availableRoles: user.roles,
+    activeRole: activeRole.roleName
   }
 }
 
@@ -166,4 +219,4 @@ async function logout({ user, ipAddress, userAgent }) {
   })
 }
 
-module.exports = { login, logout }
+module.exports = { login, logout, getSessionExpiry }

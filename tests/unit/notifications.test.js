@@ -29,7 +29,9 @@ jest.mock('../../src/middleware/authenticate', () => ({
       email: 'test@example.com',
       userType: 'internal',
       roles: [req.headers['x-test-role']],
-      orgUnitId: 'ou-1'
+      orgUnitId: 'ou-1',
+      activeRoleId: `role-${req.headers['x-test-role']}`,
+      activeRole: req.headers['x-test-role']
     }
     next()
   }

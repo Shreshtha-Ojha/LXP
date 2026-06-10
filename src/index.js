@@ -17,6 +17,7 @@ const db = require('./db')
 const authRoutes = require('./modules/auth/authRoutes')
 const userRoutes = require('./modules/users/userRoutes')
 const roleRoutes = require('./modules/roles/roleRoutes')
+const roleSwitchRoutes = require('./modules/roles/roleSwitchRoutes')
 const workflowRoutes = require('./modules/workflow/workflowRoutes')
 const notificationRoutes = require('./modules/notifications/notificationRoutes')
 const configRoutes = require('./modules/config/configRoutes')
@@ -43,10 +44,12 @@ app.get('/health', (req, res) => {
 app.use('/auth', authRoutes)
 app.use('/admin/users', userRoutes)
 
-// roleRoutes/workflowRoutes/notificationRoutes/configRoutes already declare
-// their full paths (e.g. /admin/roles, /workflows/tasks/me, /notifications/me,
-// /admin/config) and are mounted at the application root.
+// roleRoutes/roleSwitchRoutes/workflowRoutes/notificationRoutes/configRoutes
+// already declare their full paths (e.g. /admin/roles, /auth/switch-role,
+// /workflows/tasks/me, /notifications/me, /admin/config) and are mounted at
+// the application root.
 app.use(roleRoutes)
+app.use(roleSwitchRoutes)
 app.use(workflowRoutes)
 app.use(notificationRoutes)
 app.use(configRoutes)

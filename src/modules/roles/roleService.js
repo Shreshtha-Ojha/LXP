@@ -1,15 +1,17 @@
 // src/modules/roles/roleService.js
 //
-// Business logic behind /admin/roles, /admin/users/:id/roles, and
-// /access/effective-permissions. Every function takes an `actor`
-// ({ id, tenantId, roles, visibilityScope }) and enforces:
+// Business logic behind /admin/roles, /admin/users/:id/roles,
+// /access/effective-permissions, and /auth/switch-role. Every function takes
+// an `actor` ({ id, tenantId, roles, visibilityScope }) and enforces:
 //  - Rule 3: every query is scoped by tenant_id
 //  - Rule 4: every state change writes an audit event in the same transaction
 //  - Rule 7: visibility scope is enforced here for user-role assignments
 
+const jwt = require('jsonwebtoken')
 const db = require('../../db')
 const auditLog = require('../audit/auditLog')
 const { isOrgUnitInScope } = require('../users/userService')
+const { getSessionExpiry } = require('../auth/authService')
 
 const { AuditActions } = auditLog
 
@@ -506,6 +508,92 @@ async function removeRoleFromUser({ actor, userId, roleId, ipAddress, userAgent 
 }
 
 // ---------------------------------------------------------------------------
+// POST /auth/switch-role
+// ---------------------------------------------------------------------------
+
+/**
+ * D-008: switch the caller's active role to one they actually hold.
+ * Updates user_active_roles, writes ROLE_SWITCHED, and issues a fresh JWT
+ * carrying the new activeRoleId.
+ */
+async function switchActiveRole({ actor, roleId, ipAddress, userAgent }) {
+  if (!roleId) return { ok: false, status: 400, error: 'roleId is required' }
+
+  const client = await db.getClient()
+  try {
+    await client.query('BEGIN')
+
+    const roleResult = await client.query(
+      `SELECT r.id, r.name
+       FROM user_roles ur
+       JOIN roles r ON r.id = ur.role_id
+       WHERE ur.user_id = $1
+         AND ur.role_id = $2
+         AND r.tenant_id = $3
+         AND r.status = 'active'
+         AND (ur.effective_from IS NULL OR ur.effective_from <= CURRENT_DATE)
+         AND (ur.effective_to   IS NULL OR ur.effective_to   >= CURRENT_DATE)`,
+      [actor.id, roleId, actor.tenantId]
+    )
+    const role = roleResult.rows[0]
+
+    if (!role) {
+      await client.query('ROLLBACK')
+      await auditLog.write({
+        tenantId: actor.tenantId,
+        actorUserId: actor.id,
+        actorRoleAtTime: actor.activeRole,
+        actionType: AuditActions.ACCESS_VIOLATION,
+        entityType: 'User',
+        entityId: actor.id,
+        ipAddress,
+        userAgent,
+        result: 'failure',
+        metadata: { action: 'auth.switch_role', roleId, reason: 'role_not_held' }
+      })
+      return { ok: false, status: 403, error: 'Forbidden' }
+    }
+
+    await client.query(
+      `INSERT INTO user_active_roles (user_id, role_id, switched_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET role_id = EXCLUDED.role_id, switched_at = NOW()`,
+      [actor.id, role.id]
+    )
+
+    await auditLog.write({
+      tenantId: actor.tenantId,
+      actorUserId: actor.id,
+      actorRoleAtTime: role.name,
+      actionType: AuditActions.ROLE_SWITCHED,
+      entityType: 'User',
+      entityId: actor.id,
+      oldValue: { roleId: actor.activeRoleId, roleName: actor.activeRole },
+      newValue: { roleId: role.id, roleName: role.name },
+      ipAddress,
+      userAgent,
+      result: 'success'
+    }, client)
+
+    await client.query('COMMIT')
+
+    const expiresIn = await getSessionExpiry(actor.tenantId)
+    const token = jwt.sign(
+      { userId: actor.id, tenantId: actor.tenantId, activeRoleId: role.id },
+      process.env.JWT_SECRET,
+      { expiresIn }
+    )
+
+    return { ok: true, token, activeRole: role.name, availableRoles: actor.roles }
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+// ---------------------------------------------------------------------------
 // GET /access/effective-permissions
 // ---------------------------------------------------------------------------
 
@@ -542,6 +630,7 @@ module.exports = {
   setRolePermissions,
   assignRoleToUser,
   removeRoleFromUser,
+  switchActiveRole,
   getEffectivePermissions,
   serializeRole
 }

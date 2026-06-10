@@ -9,6 +9,9 @@
 // is mocked at the top level (not via jest.doMock) so every required module
 // shares the same mocked db singleton.
 
+process.env.JWT_SECRET = 'test-secret'
+process.env.JWT_EXPIRES_IN = '8h'
+
 jest.mock('../../src/db', () => ({
   query: jest.fn(),
   getClient: jest.fn()
@@ -17,6 +20,7 @@ jest.mock('../../src/modules/audit/auditLog', () => {
   const actual = jest.requireActual('../../src/modules/audit/auditLog')
   return { ...actual, write: jest.fn() }
 })
+jest.mock('jsonwebtoken')
 jest.mock('../../src/middleware/authenticate', () => ({
   authenticate: (req, res, next) => {
     req.user = {
@@ -25,7 +29,11 @@ jest.mock('../../src/middleware/authenticate', () => ({
       email: 'test@example.com',
       userType: 'internal',
       roles: [req.headers['x-test-role']],
-      orgUnitId: 'ou-1'
+      orgUnitId: 'ou-1',
+      // D-008: tests drive a single active role via x-test-role; multi-role
+      // switching itself is exercised directly against switchActiveRole below.
+      activeRoleId: `role-${req.headers['x-test-role']}`,
+      activeRole: req.headers['x-test-role']
     }
     next()
   }
@@ -33,6 +41,7 @@ jest.mock('../../src/middleware/authenticate', () => ({
 
 const db = require('../../src/db')
 const auditLog = require('../../src/modules/audit/auditLog')
+const jwt = require('jsonwebtoken')
 const roleService = require('../../src/modules/roles/roleService')
 
 const ALL_SCOPE = { type: 'all', orgUnitIds: null }
@@ -597,6 +606,168 @@ describe('removeRoleFromUser', () => {
     expect(auditLog.write).toHaveBeenCalledWith(
       expect.objectContaining({ actionType: auditLog.AuditActions.ACCESS_VIOLATION, result: 'failure' })
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// switchActiveRole (D-008)
+// ---------------------------------------------------------------------------
+
+describe('switchActiveRole', () => {
+  it('switches to a role the user holds, writes ROLE_SWITCHED, and issues a new token', async () => {
+    const actor = {
+      id: 'user-1',
+      tenantId: 'tenant-1',
+      roles: ['associate', 'ld_admin'],
+      activeRoleId: 'role-associate',
+      activeRole: 'associate'
+    }
+
+    const client = txClient([
+      {},                                              // BEGIN
+      { rows: [{ id: 'role-ld-admin', name: 'ld_admin' }] }, // SELECT held role
+      {},                                              // UPSERT user_active_roles
+      {}                                               // COMMIT
+    ])
+    db.getClient.mockResolvedValueOnce(client)
+    db.query.mockResolvedValueOnce({ rows: [{ value: { value: 60 } }] }) // getSessionExpiry
+    jwt.sign.mockReturnValueOnce('new-jwt')
+
+    const result = await roleService.switchActiveRole({
+      actor,
+      roleId: 'role-ld-admin',
+      ipAddress: '127.0.0.1',
+      userAgent: 'jest'
+    })
+
+    expect(result).toEqual({ ok: true, token: 'new-jwt', activeRole: 'ld_admin', availableRoles: ['associate', 'ld_admin'] })
+
+    expect(client.query).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO user_active_roles'),
+      ['user-1', 'role-ld-admin']
+    )
+    expect(jwt.sign).toHaveBeenCalledWith(
+      { userId: 'user-1', tenantId: 'tenant-1', activeRoleId: 'role-ld-admin' },
+      'test-secret',
+      { expiresIn: '60m' }
+    )
+
+    expect(auditLog.write).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        actorUserId: 'user-1',
+        actorRoleAtTime: 'ld_admin',
+        actionType: auditLog.AuditActions.ROLE_SWITCHED,
+        entityType: 'User',
+        entityId: 'user-1',
+        oldValue: { roleId: 'role-associate', roleName: 'associate' },
+        newValue: { roleId: 'role-ld-admin', roleName: 'ld_admin' },
+        result: 'success'
+      }),
+      client
+    )
+  })
+
+  it('returns 403 and logs ACCESS_VIOLATION when the user does not hold the requested role', async () => {
+    const actor = {
+      id: 'user-1',
+      tenantId: 'tenant-1',
+      roles: ['associate'],
+      activeRoleId: 'role-associate',
+      activeRole: 'associate'
+    }
+
+    const client = txClient([
+      {},          // BEGIN
+      { rows: [] }, // SELECT held role -> none
+      {}           // ROLLBACK
+    ])
+    db.getClient.mockResolvedValueOnce(client)
+
+    const result = await roleService.switchActiveRole({
+      actor,
+      roleId: 'role-super-admin',
+      ipAddress: '127.0.0.1',
+      userAgent: 'jest'
+    })
+
+    expect(result).toEqual({ ok: false, status: 403, error: 'Forbidden' })
+    expect(jwt.sign).not.toHaveBeenCalled()
+
+    // Failure audit is written via the pool (after ROLLBACK), not the tx client
+    expect(auditLog.write).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: 'tenant-1',
+        actorUserId: 'user-1',
+        actorRoleAtTime: 'associate',
+        actionType: auditLog.AuditActions.ACCESS_VIOLATION,
+        entityType: 'User',
+        entityId: 'user-1',
+        result: 'failure',
+        metadata: expect.objectContaining({ action: 'auth.switch_role', roleId: 'role-super-admin', reason: 'role_not_held' })
+      })
+    )
+    expect(auditLog.write).not.toHaveBeenCalledWith(expect.anything(), client)
+  })
+
+  it('returns 400 when roleId is missing, without touching the database', async () => {
+    const actor = { id: 'user-1', tenantId: 'tenant-1', roles: ['associate'], activeRoleId: 'role-associate', activeRole: 'associate' }
+
+    const result = await roleService.switchActiveRole({ actor, roleId: undefined })
+
+    expect(result).toEqual({ ok: false, status: 400, error: 'roleId is required' })
+    expect(db.getClient).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POST /auth/switch-role (route)
+// ---------------------------------------------------------------------------
+
+describe('POST /auth/switch-role (route)', () => {
+  const request = require('supertest')
+  const express = require('express')
+  const roleSwitchRoutes = require('../../src/modules/roles/roleSwitchRoutes')
+
+  const app = express()
+  app.use(express.json())
+  app.use(roleSwitchRoutes)
+
+  it('switches the active role and returns a new token (200)', async () => {
+    const client = txClient([
+      {},                                                    // BEGIN
+      { rows: [{ id: 'role-ld_admin', name: 'ld_admin' }] }, // SELECT held role
+      {},                                                    // UPSERT user_active_roles
+      {}                                                     // COMMIT
+    ])
+    db.getClient.mockResolvedValueOnce(client)
+    db.query.mockResolvedValueOnce({ rows: [{ value: { value: 60 } }] }) // getSessionExpiry
+    jwt.sign.mockReturnValueOnce('new-jwt')
+
+    const res = await request(app)
+      .post('/auth/switch-role')
+      .set('x-test-role', 'associate')
+      .send({ roleId: 'role-ld_admin' })
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ token: 'new-jwt', activeRole: 'ld_admin', availableRoles: ['associate'] })
+  })
+
+  it('returns 403 when the user does not hold the requested role', async () => {
+    const client = txClient([
+      {},          // BEGIN
+      { rows: [] }, // SELECT held role -> none
+      {}           // ROLLBACK
+    ])
+    db.getClient.mockResolvedValueOnce(client)
+
+    const res = await request(app)
+      .post('/auth/switch-role')
+      .set('x-test-role', 'associate')
+      .send({ roleId: 'role-super_admin' })
+
+    expect(res.status).toBe(403)
+    expect(res.body).toEqual({ error: 'Forbidden' })
   })
 })
 

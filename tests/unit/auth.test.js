@@ -3,6 +3,9 @@
 // Unit tests for authService.login / authService.logout.
 // Pattern: mock db, bcrypt, jwt, and auditLog so we can assert exactly
 // what gets written to the audit log for each outcome.
+//
+// D-008: login resolves and returns the user's active role (activeRole /
+// activeRoleId) alongside availableRoles (every role the user holds).
 
 process.env.JWT_SECRET = 'test-secret'
 process.env.JWT_EXPIRES_IN = '8h'
@@ -31,7 +34,22 @@ const ACTIVE_USER = {
   email: 'alice@example.com',
   password_hash: 'hashed-password',
   status: 'active',
-  roles: ['associate']
+  roles: ['associate'],
+  role_ids: ['role-assoc-1']
+}
+
+const MULTI_ROLE_USER = {
+  id: 'user-2',
+  tenant_id: 'tenant-1',
+  email: 'bob@example.com',
+  password_hash: 'hashed-password',
+  status: 'active',
+  roles: ['associate', 'ld_admin'],
+  role_ids: ['role-assoc-1', 'role-ld-admin-1']
+}
+
+const ACTIVE_ROLE_PRIORITY = {
+  value: { value: ['associate', 'reporting_manager', 'competency_leader', 'ld_admin', 'super_admin'] }
 }
 
 describe('authService.login', () => {
@@ -60,10 +78,13 @@ describe('authService.login', () => {
     expect(result.ok).toBe(true)
     expect(result.token).toBe('signed-jwt')
     expect(result.user).toEqual({ id: 'user-1', tenantId: 'tenant-1', email: 'alice@example.com' })
+    expect(result.availableRoles).toEqual(['associate'])
+    expect(result.activeRole).toBe('associate')
 
-    // JWT payload must contain only userId and tenantId, expiry from config
+    // D-008: JWT payload includes activeRoleId — a single-role user's only
+    // role is automatically active, expiry from config
     expect(jwt.sign).toHaveBeenCalledWith(
-      { userId: 'user-1', tenantId: 'tenant-1' },
+      { userId: 'user-1', tenantId: 'tenant-1', activeRoleId: 'role-assoc-1' },
       'test-secret',
       { expiresIn: '60m' }
     )
@@ -156,6 +177,81 @@ describe('authService.login', () => {
         result: 'failure',
         metadata: expect.objectContaining({ reason: 'account_not_active' })
       })
+    )
+  })
+
+  // -------------------------------------------------------------------------
+  // D-008: active role switching — login-time resolution
+  // -------------------------------------------------------------------------
+
+  it('defaults a multi-role user\'s first login to the configured active_role_priority and records it', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [MULTI_ROLE_USER] })          // findUserByEmail
+      .mockResolvedValueOnce({ rows: [] })                         // user_active_roles — no existing record
+      .mockResolvedValueOnce({ rows: [ACTIVE_ROLE_PRIORITY] })     // configurations — active_role_priority
+      .mockResolvedValueOnce({ rows: [{ value: { value: 60 } }] }) // session config
+
+    bcrypt.compare.mockResolvedValueOnce(true)
+    jwt.sign.mockReturnValueOnce('signed-jwt')
+
+    const client = { query: jest.fn().mockResolvedValue({}), release: jest.fn() }
+    db.getClient.mockResolvedValueOnce(client)
+
+    const result = await login({
+      email: 'bob@example.com',
+      password: 'correct-password',
+      ipAddress: '127.0.0.1',
+      userAgent: 'jest'
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.availableRoles).toEqual(['associate', 'ld_admin'])
+    // 'associate' is the lowest-privilege role per active_role_priority
+    expect(result.activeRole).toBe('associate')
+
+    expect(jwt.sign).toHaveBeenCalledWith(
+      { userId: 'user-2', tenantId: 'tenant-1', activeRoleId: 'role-assoc-1' },
+      'test-secret',
+      { expiresIn: '60m' }
+    )
+
+    // First-time resolution is persisted as part of the login transaction
+    expect(client.query).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO user_active_roles'),
+      ['user-2', 'role-assoc-1']
+    )
+  })
+
+  it('honors a multi-role user\'s previously chosen active role over the priority default', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [MULTI_ROLE_USER] })             // findUserByEmail
+      .mockResolvedValueOnce({ rows: [{ role_id: 'role-ld-admin-1' }] }) // user_active_roles — existing choice
+      .mockResolvedValueOnce({ rows: [{ value: { value: 60 } }] })    // session config
+
+    bcrypt.compare.mockResolvedValueOnce(true)
+    jwt.sign.mockReturnValueOnce('signed-jwt')
+
+    const client = { query: jest.fn().mockResolvedValue({}), release: jest.fn() }
+    db.getClient.mockResolvedValueOnce(client)
+
+    const result = await login({
+      email: 'bob@example.com',
+      password: 'correct-password',
+      ipAddress: '127.0.0.1',
+      userAgent: 'jest'
+    })
+
+    expect(result.activeRole).toBe('ld_admin')
+    expect(jwt.sign).toHaveBeenCalledWith(
+      { userId: 'user-2', tenantId: 'tenant-1', activeRoleId: 'role-ld-admin-1' },
+      'test-secret',
+      { expiresIn: '60m' }
+    )
+
+    // Existing choice — no INSERT into user_active_roles
+    expect(client.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO user_active_roles'),
+      expect.anything()
     )
   })
 })
