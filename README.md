@@ -58,4 +58,4 @@ The full rules live in [`CLAUDE.md`](CLAUDE.md). In short:
 Do not build features ahead of the current release. Check
 [`docs/releases/roadmap.md`](docs/releases/roadmap.md) before starting new work.
 
-Notion Checklist for Phase 0 : https://app.notion.com/p/Release-0-Checklist-Platform-Foundation-37ab6ec88e9481dc99aeffe0da79128f?source=copy_link 
+Notion Checklist for Phase 0 : https://app.notion.com/p/Release-0-Checklist-Platform-Foundation-37ab6ec88e9481dc99aeffe0da79128f?source=copy_link
