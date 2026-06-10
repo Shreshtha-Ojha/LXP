@@ -19,7 +19,7 @@ System Super Administrator, L&D Administrator, HR Administrator, Security Admini
 - Internal and external user provisioning (manual, bulk, HRMS sync)
 - Role assignment, multi-role aggregation, permission assignment
 - RBAC permission types: view, create, edit, approve, configure, administer
-- Visibility rules enforced at data layer for all persona types
+- ABAC: data-layer visibility scoping by attribute (org unit, ownership, project/practice assignment) for all persona types — Release 0 ships RBAC and ABAC together, per the Module 18 scope in `module-catalogue.md`
 - Audit logging for all role, permission, login, profile, and visibility-impacting changes
 
 ## Non-Goals
@@ -42,6 +42,7 @@ System Super Administrator, L&D Administrator, HR Administrator, Security Admini
 11. MFA is configurable per role and user type
 12. Password policy is configurable: length, complexity, expiry, reuse prevention
 13. At least one SSO identity provider is supported (Microsoft Entra / Google / Okta / SAML 2.0)
+14. The permission engine evaluates RBAC and ABAC together for every check: RBAC determines whether the role grants the action on the module/feature, ABAC determines whether the resource matches the user's `VisibilityScope` attributes (org unit, ownership, project/practice assignment) — both must pass
 
 ## Acceptance Criteria
 
@@ -115,5 +116,4 @@ access.violation
 ## Open Questions
 
 - Should deny permissions override aggregated allow permissions when a user holds multiple roles?
-- Is ABAC required in Release 0 or only RBAC?
 - Which HRMS system is in scope for the initial sync?
