@@ -30,16 +30,36 @@ code yet.
 ## Repo structure
 
 ```
-/
-├── CLAUDE.md              # Coding rules and non-negotiables
-├── AGENTS.md              # Agent operating instructions
-├── docs/
-│   ├── spec/              # Product-level reference docs
-│   └── releases/          # Release roadmap and open decisions
-└── specs/                  # Per-feature specs, numbered by build order
-    ├── 000-product-vision/
-    ├── 001-platform-foundation/
-    └── 002-learning-catalog-discovery/
+~/lxp/
+├── .env.example
+├── package.json
+├── CLAUDE.md                          ← already there
+├── AGENTS.md                          ← already there
+│
+├── src/
+│   ├── db/
+│   │   ├── index.js
+│   │   └── migrations/
+│   │       ├── 001_create_tenants.sql
+│   │       ├── 002_create_organisation_units.sql
+│   │       ├── 003_create_users.sql
+│   │       ├── 004_create_roles_permissions.sql
+│   │       ├── 005_create_audit_events.sql
+│   │       ├── 006_create_workflow_engine.sql
+│   │       ├── 007_create_notifications.sql
+│   │       ├── 008_create_configuration.sql
+│   │       └── 009_create_content_foundation.sql
+│   ├── middleware/
+│   │   └── authenticate.js
+│   └── modules/
+│       ├── audit/
+│       │   └── auditLog.js
+│       └── roles/
+│           └── permissionEngine.js
+│
+└── tests/
+    └── rbac/
+        └── permissionEngine.test.js
 ```
 
 ---
