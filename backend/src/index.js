@@ -21,6 +21,7 @@ const roleSwitchRoutes = require('./modules/roles/roleSwitchRoutes')
 const workflowRoutes = require('./modules/workflow/workflowRoutes')
 const notificationRoutes = require('./modules/notifications/notificationRoutes')
 const configRoutes = require('./modules/config/configRoutes')
+const contentRoutes = require('./modules/content/contentRoutes')
 
 const app = express()
 
@@ -40,9 +41,10 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
 
-// authRoutes/userRoutes declare paths relative to their mount point.
+// authRoutes/userRoutes/contentRoutes declare paths relative to their mount point.
 app.use('/auth', authRoutes)
 app.use('/admin/users', userRoutes)
+app.use('/content/assets', contentRoutes)
 
 // roleRoutes/roleSwitchRoutes/workflowRoutes/notificationRoutes/configRoutes
 // already declare their full paths (e.g. /admin/roles, /auth/switch-role,
