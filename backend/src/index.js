@@ -23,6 +23,8 @@ const notificationRoutes = require('./modules/notifications/notificationRoutes')
 const configRoutes = require('./modules/config/configRoutes')
 const contentRoutes = require('./modules/content/contentRoutes')
 const catalogRoutes = require('./modules/content/catalogRoutes')
+const pathRoutes = require('./modules/learning/pathRoutes')
+const assignmentRoutes = require('./modules/learning/assignmentRoutes')
 
 const app = express()
 
@@ -48,15 +50,18 @@ app.use('/admin/users', userRoutes)
 app.use('/content/assets', contentRoutes)
 
 // roleRoutes/roleSwitchRoutes/workflowRoutes/notificationRoutes/configRoutes/
-// catalogRoutes already declare their full paths (e.g. /admin/roles,
-// /auth/switch-role, /workflows/tasks/me, /notifications/me, /admin/config,
-// /catalog/search) and are mounted at the application root.
+// catalogRoutes/pathRoutes/assignmentRoutes already declare their full paths
+// (e.g. /admin/roles, /auth/switch-role, /workflows/tasks/me,
+// /notifications/me, /admin/config, /catalog/search, /learning-paths,
+// /assignments) and are mounted at the application root.
 app.use(roleRoutes)
 app.use(roleSwitchRoutes)
 app.use(workflowRoutes)
 app.use(notificationRoutes)
 app.use(configRoutes)
 app.use(catalogRoutes)
+app.use(pathRoutes)
+app.use(assignmentRoutes)
 
 // 404 for anything that didn't match a route
 app.use((req, res) => {
