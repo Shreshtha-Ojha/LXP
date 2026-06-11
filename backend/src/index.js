@@ -23,8 +23,11 @@ const notificationRoutes = require('./modules/notifications/notificationRoutes')
 const configRoutes = require('./modules/config/configRoutes')
 const contentRoutes = require('./modules/content/contentRoutes')
 const catalogRoutes = require('./modules/content/catalogRoutes')
+const scormRoutes = require('./modules/content/scormRoutes')
 const pathRoutes = require('./modules/learning/pathRoutes')
 const assignmentRoutes = require('./modules/learning/assignmentRoutes')
+const progressRoutes = require('./modules/learning/progressRoutes')
+const dashboardRoutes = require('./modules/dashboard/dashboardRoutes')
 
 const app = express()
 
@@ -50,18 +53,22 @@ app.use('/admin/users', userRoutes)
 app.use('/content/assets', contentRoutes)
 
 // roleRoutes/roleSwitchRoutes/workflowRoutes/notificationRoutes/configRoutes/
-// catalogRoutes/pathRoutes/assignmentRoutes already declare their full paths
-// (e.g. /admin/roles, /auth/switch-role, /workflows/tasks/me,
-// /notifications/me, /admin/config, /catalog/search, /learning-paths,
-// /assignments) and are mounted at the application root.
+// catalogRoutes/scormRoutes/pathRoutes/assignmentRoutes/progressRoutes/
+// dashboardRoutes already declare their full paths (e.g. /admin/roles,
+// /auth/switch-role, /workflows/tasks/me, /notifications/me, /admin/config,
+// /catalog/search, /scorm/initialize, /learning-paths, /assignments,
+// /progress/events, /dashboard/me) and are mounted at the application root.
 app.use(roleRoutes)
 app.use(roleSwitchRoutes)
 app.use(workflowRoutes)
 app.use(notificationRoutes)
 app.use(configRoutes)
 app.use(catalogRoutes)
+app.use(scormRoutes)
 app.use(pathRoutes)
 app.use(assignmentRoutes)
+app.use(progressRoutes)
+app.use(dashboardRoutes)
 
 // 404 for anything that didn't match a route
 app.use((req, res) => {
