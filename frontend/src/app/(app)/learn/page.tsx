@@ -1,20 +1,23 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
-import { AlertCircle, ChevronLeft, ChevronRight, Inbox, Sparkles, Upload } from 'lucide-react'
+import { AlertCircle, ChevronLeft, ChevronRight, Clock, Inbox, Sparkles, Upload } from 'lucide-react'
 import { api, getErrorMessage } from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
 import { useDebounce } from '@/lib/useDebounce'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { ProgressBar } from '@/components/ui/ProgressBar'
 import { CourseCard } from '@/components/catalogue/CourseCard'
 import { CourseCardSkeleton } from '@/components/catalogue/CourseCardSkeleton'
 import { CourseRow } from '@/components/catalogue/CourseRow'
 import { SearchBar } from '@/components/catalogue/SearchBar'
 import { FilterPills, type ContentTypeFilter, type ProficiencyFilter } from '@/components/catalogue/FilterPills'
 import { CATALOGUE_COLORS as COLOR } from '@/components/catalogue/colors'
+import { PATH_COLORS } from '@/components/path/colors'
+import { getCompletedCount, getEffectiveNodes, SYSTEM_DESIGN_PATH, type LearningPath } from '@/components/path/types'
 import { assetToCourse, assignmentToCourse, progressToCourse } from '@/components/catalogue/mappers'
 import type {
   ApiAssignment,
@@ -59,6 +62,79 @@ async function fetchAssignments(): Promise<AssignmentsResponse> {
 async function fetchProgress(): Promise<ProgressResponse> {
   const { data } = await api.get<ProgressResponse>('/progress/me')
   return data
+}
+
+function LearningPathCard({ path }: { path: LearningPath }) {
+  const router = useRouter()
+  const nodes = getEffectiveNodes(path, [])
+  const completedCount = getCompletedCount(nodes)
+  const progressPct = (completedCount / nodes.length) * 100
+
+  function navigateToPath() {
+    router.push(`/learn/paths/${path.id}`)
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      navigateToPath()
+    }
+  }
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={navigateToPath}
+      onKeyDown={handleKeyDown}
+      className="flex cursor-pointer flex-col rounded-[10px] px-5 py-4 transition-colors hover:border-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      style={{ backgroundColor: COLOR.card, border: `0.5px solid ${COLOR.cardBorder}` }}
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+          style={{ color: COLOR.accentTitle, backgroundColor: COLOR.accentBadgeBg, border: `0.5px solid ${COLOR.accentBadgeBorder}` }}
+        >
+          Learning path
+        </span>
+        <span
+          className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+          style={{ color: COLOR.muted45, backgroundColor: COLOR.muted04, border: `0.5px solid ${COLOR.muted10}` }}
+        >
+          {path.nodes.length} nodes
+        </span>
+      </div>
+
+      <h3 className="mt-2.5 text-[16px] font-medium" style={{ color: COLOR.pageTitle }}>
+        {path.title}
+      </h3>
+      <p className="mt-1 text-[13px]" style={{ color: COLOR.muted45 }}>
+        From fundamentals to real-world architecture
+      </p>
+
+      <div className="mt-3">
+        <ProgressBar value={progressPct} className="h-[3px]" />
+        <div className="mt-1.5 text-[11px]" style={{ color: COLOR.muted35 }}>
+          {completedCount} of {nodes.length} nodes complete
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center justify-between">
+        <div className="flex items-center gap-3 text-xs" style={{ color: COLOR.muted30 }}>
+          <span className="flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            ~6 hours
+          </span>
+          <span className="flex items-center gap-1 font-medium" style={{ color: PATH_COLORS.amber }}>
+            💰 {path.total_coins} coins
+          </span>
+        </div>
+        <span className="text-[13px] font-medium" style={{ color: COLOR.accent }}>
+          Continue →
+        </span>
+      </div>
+    </div>
+  )
 }
 
 function SkeletonGrid() {
@@ -314,6 +390,11 @@ export default function LearnPage() {
           />
 
           <CourseRow title="Recommended for you" courses={recommended} isLoading={browseQuery.isLoading} />
+
+          <section>
+            <h2 className="mb-3 text-[15px] font-medium text-fg">Learning paths</h2>
+            <LearningPathCard path={SYSTEM_DESIGN_PATH} />
+          </section>
 
           {(browseQuery.isLoading || recentlyAdded.length > 0 || isLdAdmin) && (
             <section>

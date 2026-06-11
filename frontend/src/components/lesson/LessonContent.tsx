@@ -1,8 +1,32 @@
+import type { ReactNode } from 'react'
 import { Callout } from './Callout'
 import { LESSON_COLORS as COLOR } from './colors'
 import { QuizBlock } from './QuizBlock'
 import type { ContentBlock } from './contentParser'
 import type { QuizQuestion } from './types'
+
+const BOLD_PATTERN = /\*\*(.+?)\*\*/g
+
+/** Renders `**bold**` runs as `<strong>`, leaving everything else as plain text. */
+function renderInlineText(text: string, keyPrefix: string): ReactNode[] {
+  const parts: ReactNode[] = []
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  BOLD_PATTERN.lastIndex = 0
+  while ((match = BOLD_PATTERN.exec(text)) !== null) {
+    if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index))
+    parts.push(
+      <strong key={`${keyPrefix}-${match.index}`} style={{ fontWeight: 600, color: COLOR.pageTitle }}>
+        {match[1]}
+      </strong>
+    )
+    lastIndex = match.index + match[0].length
+  }
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex))
+
+  return parts
+}
 
 function CodeBlock({ code, label }: { code: string; label: string }) {
   return (
@@ -51,7 +75,7 @@ export function LessonContent({ blocks, quiz }: LessonContentProps) {
           case 'callout':
             return (
               <Callout key={index} variant={block.variant}>
-                {block.text}
+                {renderInlineText(block.text, `callout-${index}`)}
               </Callout>
             )
           case 'code':
@@ -60,7 +84,7 @@ export function LessonContent({ blocks, quiz }: LessonContentProps) {
           default:
             return (
               <p key={index} className="mb-5 text-[15px]" style={{ color: COLOR.muted60, lineHeight: 1.8 }}>
-                {block.text}
+                {renderInlineText(block.text, `p-${index}`)}
               </p>
             )
         }

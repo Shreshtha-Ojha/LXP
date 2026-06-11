@@ -28,6 +28,33 @@
 
   /* Typography */
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  /* Learning path gamification — pulsing ring on the active trail node,
+     and the "+N coins" float-and-fade on node completion. */
+  --animate-pulse-ring: pulse-ring 2s ease-out infinite;
+  --animate-coin-float: coin-float 1.5s ease-out forwards;
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}
+
+@keyframes coin-float {
+  0% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-40px);
+    opacity: 0;
+  }
 }
 
 @layer base {

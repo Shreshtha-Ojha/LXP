@@ -8,6 +8,7 @@ import { AlertCircle, ArrowRight, ArrowUpRight, Flame } from 'lucide-react'
 import { api, getErrorMessage } from '@/lib/api'
 import { getHomeRouteForRole } from '@/lib/auth'
 import { useAuthStore } from '@/store/authStore'
+import { usePathProgressStore } from '@/store/pathProgressStore'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Spinner } from '@/components/ui/Spinner'
 
@@ -393,6 +394,7 @@ function CompetencyPanel({ targetRole, items }: { targetRole: string | null; ite
 export default function DashboardPage() {
   const router = useRouter()
   const activeRole = useAuthStore((state) => state.activeRole)
+  const coinTotal = usePathProgressStore((state) => state.coinTotal)
 
   // Reporting managers and above use the team dashboard, not this
   // associate-focused view — bounce them there on load.
@@ -453,12 +455,20 @@ export default function DashboardPage() {
             {dayName}
           </span>
         </div>
-        <div
-          className="flex items-center gap-1.5 rounded-[20px] px-3 py-1 text-[13px] font-medium"
-          style={{ color: COLOR.amber, backgroundColor: 'rgba(245,158,11,0.1)', border: '0.5px solid rgba(245,158,11,0.2)' }}
-        >
-          <Flame className="h-3.5 w-3.5" />
-          {data.greeting.streak_days}-day streak
+        <div className="flex items-center gap-3">
+          <div
+            className="flex items-center gap-1.5 rounded-[20px] px-3 py-1 text-[13px] font-medium"
+            style={{ color: COLOR.amber, backgroundColor: 'rgba(245,158,11,0.1)', border: '0.5px solid rgba(245,158,11,0.2)' }}
+          >
+            <Flame className="h-3.5 w-3.5" />
+            {data.greeting.streak_days}-day streak
+          </div>
+          <div
+            className="flex items-center gap-1.5 rounded-[20px] px-3 py-1 text-[13px] font-medium"
+            style={{ color: COLOR.amber, backgroundColor: 'rgba(245,158,11,0.08)', border: '0.5px solid rgba(245,158,11,0.15)' }}
+          >
+            💰 {coinTotal} coins
+          </div>
         </div>
       </div>
 

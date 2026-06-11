@@ -6,6 +6,8 @@ import { usePathname, useRouter } from 'next/navigation'
 import { Bell, ChevronDown, LogOut, Settings, User as UserIcon } from 'lucide-react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { useAuthStore } from '@/store/authStore'
+import { PATH_COLORS as COLOR } from '@/components/path/colors'
+import { usePathProgressStore } from '@/store/pathProgressStore'
 import { type AuthUser } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 
@@ -130,6 +132,7 @@ export function Navbar() {
   const activeRole = useAuthStore((state) => state.activeRole)
   const availableRoles = useAuthStore((state) => state.availableRoles)
   const switchRole = useAuthStore((state) => state.switchRole)
+  const coinTotal = usePathProgressStore((state) => state.coinTotal)
 
   const visibleNavItems = NAV_ITEMS.filter(
     (item) => item.label !== 'Team' || activeRole !== ASSOCIATE_ROLE
@@ -218,6 +221,13 @@ export function Navbar() {
           >
             <Bell className="h-4 w-4" />
           </button>
+
+          <div
+            className="flex items-center gap-1.5 rounded-[20px] px-2.5 py-1 text-[13px] font-medium"
+            style={{ color: COLOR.amber, backgroundColor: COLOR.amberBg, border: `0.5px solid ${COLOR.amberBorder15}` }}
+          >
+            💰 {coinTotal}
+          </div>
 
           <AvatarMenu user={user} />
         </div>
