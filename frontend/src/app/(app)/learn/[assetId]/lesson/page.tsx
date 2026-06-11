@@ -20,7 +20,7 @@ import { VideoPlayer, type VideoPlayerHandle, type VideoProgress } from '@/compo
 import { LESSON_COLORS as COLOR } from '@/components/lesson/colors'
 import { parseLessonContent, type ContentBlock } from '@/components/lesson/contentParser'
 import { useLessonNotes } from '@/components/lesson/useLessonNotes'
-import { mockLesson, type LessonAsset, type LessonBookmark } from '@/components/lesson/types'
+import { mockLesson, type LessonAsset, type LessonBookmark, type OutlineLesson } from '@/components/lesson/types'
 
 // Mirrors formatDuration in app/(app)/learn/[assetId]/page.tsx so durations read consistently.
 function formatDuration(minutes: number): string {
@@ -33,6 +33,13 @@ function formatTimestamp(seconds: number): string {
   const mins = Math.floor(seconds / 60)
   const secs = Math.floor(seconds % 60)
   return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+/** Picks the lesson to treat as "current": the first one marked active, or else the first not yet completed. */
+function findInitialLessonIndex(lessons: OutlineLesson[]): number {
+  const activeIndex = lessons.findIndex((lesson) => lesson.status === 'active')
+  if (activeIndex >= 0) return activeIndex
+  return lessons.findIndex((lesson) => lesson.status !== 'completed')
 }
 
 async function fetchAsset(assetId: string): Promise<ApiLearningAsset> {
@@ -143,13 +150,18 @@ export default function LessonPage() {
   const activeHeadingId = useActiveHeadingId(headings, scrollContainerRef)
 
   const lessonsInCourse = asset.lessons_in_course ?? []
-  const matchedIndex = lessonsInCourse.findIndex((lesson) => lesson.id === assetId)
-  const activeIndex = matchedIndex >= 0 ? matchedIndex : lessonsInCourse.findIndex((lesson) => lesson.status === 'active')
-  const lessonNumber = activeIndex >= 0 ? activeIndex + 1 : null
+  const [currentLessonIndex, setCurrentLessonIndex] = useState(() => findInitialLessonIndex(lessonsInCourse))
+  const lessonNumber = currentLessonIndex >= 0 ? currentLessonIndex + 1 : null
   const totalLessons = lessonsInCourse.length || null
-  const prevLesson = activeIndex > 0 ? lessonsInCourse[activeIndex - 1] : null
-  const nextLesson = activeIndex >= 0 && activeIndex < lessonsInCourse.length - 1 ? lessonsInCourse[activeIndex + 1] : null
-  const isLastLesson = activeIndex >= 0 && activeIndex === lessonsInCourse.length - 1
+  const prevLesson = currentLessonIndex > 0 ? lessonsInCourse[currentLessonIndex - 1] : null
+  const nextLesson =
+    currentLessonIndex >= 0 && currentLessonIndex < lessonsInCourse.length - 1 ? lessonsInCourse[currentLessonIndex + 1] : null
+  const isLastLesson = currentLessonIndex >= 0 && currentLessonIndex === lessonsInCourse.length - 1
+
+  function handleNavigateToLesson(lesson: OutlineLesson, index: number) {
+    setCurrentLessonIndex(index)
+    router.push(`/learn/${lesson.id}/lesson`)
+  }
 
   /** Where a new note/bookmark should anchor: the current TOC section, or the current video timestamp. */
   function getCurrentAnchor(): { id: string; label: string } {
@@ -249,7 +261,12 @@ export default function LessonPage() {
       />
 
       <div className="flex flex-1 overflow-hidden">
-        <CourseOutlineSidebar lessons={lessonsInCourse} className="hidden lg:flex lg:flex-col" />
+        <CourseOutlineSidebar
+          lessons={lessonsInCourse}
+          activeIndex={currentLessonIndex}
+          onSelectLesson={handleNavigateToLesson}
+          className="hidden lg:flex lg:flex-col"
+        />
 
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
           <div className={cn('mx-auto max-w-[720px] px-10 py-8', !isVideo && showCompleteButton && 'pb-24')}>
@@ -311,7 +328,7 @@ export default function LessonPage() {
             {/* Bottom navigation */}
             <div className="mt-8 flex items-center justify-between pt-8" style={{ borderTop: `0.5px solid ${COLOR.border05}` }}>
               {prevLesson ? (
-                <Button variant="ghost" onClick={() => router.push(`/learn/${prevLesson.id}/lesson`)}>
+                <Button variant="ghost" onClick={() => handleNavigateToLesson(prevLesson, currentLessonIndex - 1)}>
                   ← Previous
                 </Button>
               ) : (
@@ -324,7 +341,7 @@ export default function LessonPage() {
                   Complete course →
                 </Button>
               ) : nextLesson ? (
-                <Button variant="primary" onClick={() => router.push(`/learn/${nextLesson.id}/lesson`)}>
+                <Button variant="primary" onClick={() => handleNavigateToLesson(nextLesson, currentLessonIndex + 1)}>
                   Next lesson →
                 </Button>
               ) : (
@@ -385,7 +402,12 @@ export default function LessonPage() {
             >
               <X className="h-4 w-4" />
             </Dialog.Close>
-            <CourseOutlineSidebar lessons={lessonsInCourse} className="h-full" />
+            <CourseOutlineSidebar
+              lessons={lessonsInCourse}
+              activeIndex={currentLessonIndex}
+              onSelectLesson={handleNavigateToLesson}
+              className="h-full"
+            />
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>

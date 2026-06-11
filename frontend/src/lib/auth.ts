@@ -58,3 +58,20 @@ export function clearUser(): void {
 export function isAuthenticated(): boolean {
   return getToken() !== null
 }
+
+// TODO: this role -> landing page mapping should come from the permission
+// engine / a configurable nav record (CLAUDE.md Rule 1: no hardcoded role
+// names). Hardcoded here as a placeholder until that config exists — mirrors
+// Navbar.tsx and learn/page.tsx.
+const MANAGER_TIER_ROLES = [
+  'reporting_manager',
+  'program_manager',
+  'competency_leader',
+  'ld_admin',
+  'hr_admin',
+] as const
+
+/** Where a user with the given active role should land after login. */
+export function getHomeRouteForRole(role: string | null | undefined): '/team' | '/dashboard' {
+  return role && (MANAGER_TIER_ROLES as readonly string[]).includes(role) ? '/team' : '/dashboard'
+}

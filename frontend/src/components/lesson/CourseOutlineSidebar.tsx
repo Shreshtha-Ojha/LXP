@@ -1,15 +1,13 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
 import { CheckCircle2, Lock } from 'lucide-react'
 import * as Tooltip from '@radix-ui/react-tooltip'
 import { cn } from '@/lib/utils'
 import { LESSON_COLORS as COLOR } from './colors'
 import type { OutlineLesson } from './types'
 
-function OutlineItem({ lesson, onNavigate }: { lesson: OutlineLesson; onNavigate: (assetId: string) => void }) {
+function OutlineItem({ lesson, isActive, onSelect }: { lesson: OutlineLesson; isActive: boolean; onSelect: () => void }) {
   const isCompleted = lesson.status === 'completed'
-  const isActive = lesson.status === 'active'
   const isLocked = lesson.status === 'locked'
   const isClickable = !isLocked && !isActive
 
@@ -37,11 +35,11 @@ function OutlineItem({ lesson, onNavigate }: { lesson: OutlineLesson; onNavigate
       role="button"
       tabIndex={isClickable ? 0 : -1}
       aria-disabled={!isClickable}
-      onClick={() => isClickable && onNavigate(lesson.id)}
+      onClick={() => isClickable && onSelect()}
       onKeyDown={(event) => {
         if (isClickable && (event.key === 'Enter' || event.key === ' ')) {
           event.preventDefault()
-          onNavigate(lesson.id)
+          onSelect()
         }
       }}
       className={cn(
@@ -81,12 +79,12 @@ function OutlineItem({ lesson, onNavigate }: { lesson: OutlineLesson; onNavigate
 
 export interface CourseOutlineSidebarProps {
   lessons: OutlineLesson[]
+  activeIndex: number
+  onSelectLesson: (lesson: OutlineLesson, index: number) => void
   className?: string
 }
 
-export function CourseOutlineSidebar({ lessons, className }: CourseOutlineSidebarProps) {
-  const router = useRouter()
-
+export function CourseOutlineSidebar({ lessons, activeIndex, onSelectLesson, className }: CourseOutlineSidebarProps) {
   return (
     <aside
       className={cn('w-[200px] shrink-0 overflow-y-auto py-5', className)}
@@ -97,8 +95,8 @@ export function CourseOutlineSidebar({ lessons, className }: CourseOutlineSideba
       </div>
       <Tooltip.Provider delayDuration={200}>
         <div className="mt-2">
-          {lessons.map((lesson) => (
-            <OutlineItem key={lesson.id} lesson={lesson} onNavigate={(assetId) => router.push(`/learn/${assetId}/lesson`)} />
+          {lessons.map((lesson, index) => (
+            <OutlineItem key={lesson.id} lesson={lesson} isActive={index === activeIndex} onSelect={() => onSelectLesson(lesson, index)} />
           ))}
         </div>
       </Tooltip.Provider>

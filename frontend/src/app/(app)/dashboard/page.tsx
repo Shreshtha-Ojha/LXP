@@ -1,10 +1,13 @@
 'use client'
 
-import { type ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { AlertCircle, ArrowRight, ArrowUpRight, Flame } from 'lucide-react'
 import { api, getErrorMessage } from '@/lib/api'
+import { getHomeRouteForRole } from '@/lib/auth'
+import { useAuthStore } from '@/store/authStore'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Spinner } from '@/components/ui/Spinner'
 
@@ -388,6 +391,19 @@ function CompetencyPanel({ targetRole, items }: { targetRole: string | null; ite
 }
 
 export default function DashboardPage() {
+  const router = useRouter()
+  const activeRole = useAuthStore((state) => state.activeRole)
+
+  // Reporting managers and above use the team dashboard, not this
+  // associate-focused view — bounce them there on load.
+  const belongsOnTeamDashboard = getHomeRouteForRole(activeRole) === '/team'
+
+  useEffect(() => {
+    if (belongsOnTeamDashboard) {
+      router.replace('/team')
+    }
+  }, [belongsOnTeamDashboard, router])
+
   const {
     data,
     isLoading,
@@ -396,9 +412,10 @@ export default function DashboardPage() {
   } = useQuery({
     queryKey: ['dashboard-me'],
     queryFn: fetchDashboard,
+    enabled: !belongsOnTeamDashboard,
   })
 
-  if (isLoading) {
+  if (belongsOnTeamDashboard || isLoading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
         <Spinner className="h-6 w-6" />

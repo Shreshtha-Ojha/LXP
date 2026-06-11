@@ -4,6 +4,7 @@ import { useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/authStore'
 import { getErrorMessage } from '@/lib/api'
+import { getHomeRouteForRole } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -43,7 +44,7 @@ export default function LoginPage() {
       if (availableRoles.length > 1 && activeRole) {
         setRoleChoice({ roles: availableRoles, activeRole })
       } else {
-        router.push('/dashboard')
+        router.push(getHomeRouteForRole(activeRole))
       }
     } catch (err) {
       setError(getErrorMessage(err))
@@ -58,14 +59,14 @@ export default function LoginPage() {
 
     // Already the active role from login — no need to call switch-role.
     if (role === roleChoice.activeRole) {
-      router.push('/dashboard')
+      router.push(getHomeRouteForRole(role))
       return
     }
 
     setSubmitting(true)
     try {
       await switchRole(role)
-      router.push('/dashboard')
+      router.push(getHomeRouteForRole(role))
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {
