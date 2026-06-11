@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+@theme {
+  /* Backgrounds — warm near-black, layered surfaces */
+  --color-bg: #0f0f10;
+  --color-surface: #18181b;
+  --color-surface-hover: #1f1f23;
+  --color-elevated: #232328;
+
+  /* Borders — hairline, low-contrast */
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-strong: rgba(255, 255, 255, 0.16);
+
+  /* Accent — single violet */
+  --color-accent: #7c6af7;
+  --color-accent-hover: #8f7ff9;
+  --color-accent-muted: rgba(124, 106, 247, 0.14);
+
+  /* Text */
+  --color-fg: #f2f2f3;
+  --color-fg-muted: #9b9ba3;
+  --color-fg-subtle: #65656d;
+
+  /* Status */
+  --color-success: #22c55e;
+  --color-warning: #f5a524;
+  --color-danger: #f3514a;
+
+  /* Typography */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-fg);
+  }
+}
+
+@layer utilities {
+  /* Tailwind's `border` utility is 1px. The design system uses 0.5px
+     hairlines throughout — pair with `border-border` for colour. */
+  .border-hairline {
+    border-width: 0.5px;
+  }
+
+  .border-b-hairline {
+    border-bottom-width: 0.5px;
+  }
+
+  .border-t-hairline {
+    border-top-width: 0.5px;
+  }
+}
