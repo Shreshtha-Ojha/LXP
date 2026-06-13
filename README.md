@@ -6,7 +6,7 @@
 
 ## What is this?
 
-SG LXP is a full-stack enterprise learning platform built spec-first by a team of 3. It is designed to feel like a tool people *want* to use, not one they *have* to use.
+SG LXP is a full-stack enterprise learning platform built spec-first. It is designed to feel like a tool people *want* to use, not one they *have* to use.
 
 Design philosophy:
 - **Linear** for layout, navigation, and information density
