@@ -4,7 +4,7 @@ import { useEffect, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { AlertCircle, ArrowRight, ArrowUpRight, Flame } from 'lucide-react'
+import { AlertCircle, ArrowRight, Flame, Target } from 'lucide-react'
 import { api, getErrorMessage } from '@/lib/api'
 import { getHomeRouteForRole } from '@/lib/auth'
 import { useAuthStore } from '@/store/authStore'
@@ -125,20 +125,6 @@ function formatActionMeta(action: NextAction): string {
   return parts.join(' · ')
 }
 
-function summarizeBlockingItems(items: PromotionBlockingItem[]): string {
-  if (items.length === 0) return "You're on track — nothing is currently blocking your readiness"
-
-  const skillGaps = items.filter((item) => item.type === 'skill_gap').length
-  const assessments = items.filter((item) => item.type === 'assessment').length
-
-  const parts: string[] = []
-  if (assessments > 0) parts.push(`${assessments} assessment${assessments === 1 ? '' : 's'}`)
-  if (skillGaps > 0) parts.push(`${skillGaps} skill gap${skillGaps === 1 ? '' : 's'}`)
-
-  if (parts.length === 0) return `${items.length} item${items.length === 1 ? '' : 's'} blocking your readiness`
-  return `${parts.join(' and ')} blocking your readiness`
-}
-
 // --- presentational helpers -------------------------------------------------
 
 function Panel({ children }: { children: ReactNode }) {
@@ -231,7 +217,15 @@ function KpiCard({ label, value, valueSub, valueColor = COLOR.fg, delta, deltaCo
   )
 }
 
-function PromotionBanner({ promo }: { promo: DashboardResponse['promotion_readiness'] }) {
+function SkillProgressBanner({
+  promo,
+  skillsValidated,
+  skillsTotal,
+}: {
+  promo: DashboardResponse['promotion_readiness']
+  skillsValidated: number
+  skillsTotal: number
+}) {
   const hasReadiness = promo.target_role != null && promo.readiness_pct != null
 
   return (
@@ -243,29 +237,29 @@ function PromotionBanner({ promo }: { promo: DashboardResponse['promotion_readin
         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px]"
         style={{ backgroundColor: 'rgba(124,106,247,0.15)', border: '0.5px solid rgba(124,106,247,0.25)' }}
       >
-        <ArrowUpRight className="h-5 w-5" style={{ color: COLOR.accent }} />
+        <Target className="h-5 w-5" style={{ color: COLOR.accent }} />
       </div>
 
       <div className="min-w-0">
         <div className="text-[10px] font-medium uppercase tracking-wide" style={{ color: COLOR.accentEyebrow }}>
-          Promotion readiness
+          Skill progress
         </div>
         {hasReadiness ? (
           <>
             <div className="mt-0.5 text-sm font-medium" style={{ color: COLOR.accentTitle }}>
-              {promo.target_role} — you&apos;re closer than you think
+              {promo.target_role} — skills you&apos;re building toward
             </div>
             <div className="mt-0.5 text-xs" style={{ color: COLOR.muted35 }}>
-              {summarizeBlockingItems(promo.blocking_items)}
+              You have {skillsValidated} of {skillsTotal} required skills at the right level
             </div>
           </>
         ) : (
           <>
             <div className="mt-0.5 text-sm font-medium" style={{ color: COLOR.accentTitle }}>
-              Set a target role to see your promotion readiness
+              Set a target role to see your skill progress
             </div>
             <div className="mt-0.5 text-xs" style={{ color: COLOR.muted35 }}>
-              Once a target role is set, we&apos;ll show what&apos;s blocking your next promotion here
+              Once a target role is set, we&apos;ll show which skills you still need here
             </div>
           </>
         )}
@@ -283,7 +277,7 @@ function PromotionBanner({ promo }: { promo: DashboardResponse['promotion_readin
             />
           </div>
           <Link href="/growth" className="text-[11px]" style={{ color: 'rgba(124,106,247,0.6)' }}>
-            View full path →
+            View skill gaps →
           </Link>
         </div>
       )}
@@ -361,7 +355,7 @@ function CompetencyPanel({ targetRole, items }: { targetRole: string | null; ite
   return (
     <Panel>
       <PanelHeader
-        title={`Competency progress${targetRole ? ` — toward ${targetRole}` : ''}`}
+        title={targetRole ? `Skills required for ${targetRole}` : 'Skills required'}
         action={{ label: 'View full profile', href: '/growth' }}
       />
       {items.length === 0 ? (
@@ -383,7 +377,7 @@ function CompetencyPanel({ targetRole, items }: { targetRole: string | null; ite
             <span className="w-20 shrink-0 text-right text-sm" style={{ color: 'rgba(255,255,255,0.5)' }}>
               {item.current_level}
             </span>
-            <Pill label={item.gap ? 'Gap' : 'Met'} tone={item.gap ? 'amber' : 'green'} />
+            <Pill label={item.gap ? 'Needs work' : 'Achieved'} tone={item.gap ? 'amber' : 'green'} />
           </div>
         ))
       )}
@@ -472,8 +466,12 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Section 2 — promotion readiness banner */}
-      <PromotionBanner promo={data.promotion_readiness} />
+      {/* Section 2 — skill progress banner */}
+      <SkillProgressBanner
+        promo={data.promotion_readiness}
+        skillsValidated={skills_validated}
+        skillsTotal={skills_total}
+      />
 
       {/* Section 3 — KPI cards */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -493,10 +491,10 @@ export default function DashboardPage() {
           progressColor={COLOR.accent}
         />
         <KpiCard
-          label="Blocking my promotion"
+          label="Skill gaps to close"
           value={`${blocking_count}`}
           valueColor={blocking_count > 0 ? COLOR.amber : COLOR.fg}
-          delta={blocking_count > 0 ? `${blocking_count} item${blocking_count === 1 ? '' : 's'} need attention` : 'Nothing blocking you'}
+          delta={blocking_count > 0 ? `${blocking_count} skill${blocking_count === 1 ? '' : 's'} need work` : 'Nothing blocking you'}
           deltaColor={blocking_count > 0 ? COLOR.amber : COLOR.green}
           progress={blocking_count > 0 ? 100 : 0}
           progressColor="rgba(245,158,11,0.4)"
