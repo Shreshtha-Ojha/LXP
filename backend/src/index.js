@@ -28,6 +28,7 @@ const pathRoutes = require('./modules/learning/pathRoutes')
 const assignmentRoutes = require('./modules/learning/assignmentRoutes')
 const progressRoutes = require('./modules/learning/progressRoutes')
 const dashboardRoutes = require('./modules/dashboard/dashboardRoutes')
+const skillRoutes = require('./modules/skills/skillRoutes')
 
 const app = express()
 
@@ -54,10 +55,11 @@ app.use('/content/assets', contentRoutes)
 
 // roleRoutes/roleSwitchRoutes/workflowRoutes/notificationRoutes/configRoutes/
 // catalogRoutes/scormRoutes/pathRoutes/assignmentRoutes/progressRoutes/
-// dashboardRoutes already declare their full paths (e.g. /admin/roles,
-// /auth/switch-role, /workflows/tasks/me, /notifications/me, /admin/config,
-// /catalog/search, /scorm/initialize, /learning-paths, /assignments,
-// /progress/events, /dashboard/me) and are mounted at the application root.
+// dashboardRoutes/skillRoutes already declare their full paths (e.g.
+// /admin/roles, /auth/switch-role, /workflows/tasks/me, /notifications/me,
+// /admin/config, /catalog/search, /scorm/initialize, /learning-paths,
+// /assignments, /progress/events, /dashboard/me, /skills/inventory) and are
+// mounted at the application root.
 app.use(roleRoutes)
 app.use(roleSwitchRoutes)
 app.use(workflowRoutes)
@@ -69,6 +71,7 @@ app.use(pathRoutes)
 app.use(assignmentRoutes)
 app.use(progressRoutes)
 app.use(dashboardRoutes)
+app.use(skillRoutes)
 
 // 404 for anything that didn't match a route
 app.use((req, res) => {
