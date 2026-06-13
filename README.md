@@ -1,6 +1,6 @@
 # SG LXP — Learning Experience Platform
 
-> SenecaGlobal's internal Learning Experience Platform. Built to replace Disprz and own the full talent development lifecycle — from learning and skill validation to career pathing, assessments, and workforce intelligence.
+> SenecaGlobal's internal Learning Experience Platform - the full talent development lifecycle — from learning and skill validation to career pathing, assessments, and workforce intelligence.
 
 ---
 
