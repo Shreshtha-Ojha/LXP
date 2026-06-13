@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { AlertCircle, ChevronLeft, ChevronRight, Clock, Inbox, Sparkles, Upload } from 'lucide-react'
 import { api, getErrorMessage } from '@/lib/api'
@@ -147,11 +147,15 @@ function SkeletonGrid() {
   )
 }
 
-export default function LearnPage() {
+function LearnPageContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const isLdAdmin = useAuthStore((state) => state.activeRole) === LD_ADMIN_ROLE
 
-  const [query, setQuery] = useState('')
+  // Seeds the search box from `/learn?skill=<name>` (used by the "Close this
+  // gap" link on the My Growth page) — /catalog/search?q= already matches
+  // against linked skill names, so pre-filling the query pre-filters results.
+  const [query, setQuery] = useState(() => searchParams.get('skill') ?? '')
   const [contentTypeFilter, setContentTypeFilter] = useState<ContentTypeFilter>('all')
   const [proficiencyFilter, setProficiencyFilter] = useState<ProficiencyFilter | null>(null)
   const [page, setPage] = useState(1)
@@ -419,5 +423,13 @@ export default function LearnPage() {
         </>
       )}
     </div>
+  )
+}
+
+export default function LearnPage() {
+  return (
+    <Suspense fallback={null}>
+      <LearnPageContent />
+    </Suspense>
   )
 }
