@@ -412,18 +412,6 @@ Node structure:
 
 ---
 
-## Contributing
 
-Three-person team. All work goes through pull requests — no one merges their own code.
-
-Before every PR check:
-1. Does anything that should be configurable end up hardcoded?
-2. Does every API endpoint check permissions through the permission engine?
-3. Does every state change write to the audit log?
-4. Is every database query filtered by `tenant_id`?
-5. Can every migration be rolled back safely?
-6. Is there at least one test proving a forbidden role gets a 403?
-
-See `CLAUDE.md` for the full coding rulebook.
 
 ---
