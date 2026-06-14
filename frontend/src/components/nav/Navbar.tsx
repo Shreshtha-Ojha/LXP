@@ -23,6 +23,17 @@ const NAV_ITEMS = [
   { label: 'Team', href: '/team' },
 ] as const
 
+// TODO: same as ASSOCIATE_ROLE above — nav visibility for the admin tools
+// should come from the permission engine / nav config, not a hardcoded role
+// list (CLAUDE.md Rule 1).
+const ADMIN_DROPDOWN_ROLES = ['ld_admin', 'competency_leader', 'trainer']
+
+const ADMIN_MENU_ITEMS = [
+  { label: 'Learning paths', href: '/admin/paths' },
+  { label: 'Content library', href: '/admin/content' },
+  { label: 'Users', href: '/admin/users' },
+] as const
+
 // Acronym roles don't survive `replace + CSS capitalize` ("ld admin" ->
 // "Ld Admin", not "L&D Admin") — every other role does, so only these two
 // need an explicit override.
@@ -134,6 +145,63 @@ function AvatarMenu({ user }: { user: AuthUser | null }) {
   )
 }
 
+function AdminMenu({ isActive }: { isActive: boolean }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+
+    document.addEventListener('click', handleClickOutside)
+    return () => document.removeEventListener('click', handleClickOutside)
+  }, [isOpen])
+
+  return (
+    <div ref={menuRef} className="relative">
+      <button
+        type="button"
+        aria-label="Admin menu"
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((prev) => !prev)}
+        className={cn(
+          'relative flex items-center gap-1 px-3 py-2 text-sm transition-colors',
+          isActive || isOpen ? 'text-fg' : 'text-fg-muted hover:text-fg'
+        )}
+      >
+        Admin
+        <ChevronDown className="h-3.5 w-3.5" />
+        {isActive && <span className="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-accent" />}
+      </button>
+
+      {isOpen && (
+        <div
+          role="menu"
+          className="absolute left-0 top-[44px] z-20 min-w-[180px] rounded-lg border-[0.5px] border-[rgba(255,255,255,0.1)] bg-[#161618] shadow-[0_4px_20px_rgba(0,0,0,0.4)]"
+        >
+          {ADMIN_MENU_ITEMS.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              role="menuitem"
+              onClick={() => setIsOpen(false)}
+              className={cn(AVATAR_MENU_ITEM_CLASSES, 'text-[rgba(255,255,255,0.5)]')}
+            >
+              {item.label}
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function Navbar() {
   const pathname = usePathname()
   const user = useAuthStore((state) => state.user)
@@ -181,6 +249,9 @@ export function Navbar() {
                 </Link>
               )
             })}
+            {!!activeRole && ADMIN_DROPDOWN_ROLES.includes(activeRole) && (
+              <AdminMenu isActive={pathname.startsWith('/admin')} />
+            )}
           </nav>
         </div>
 
