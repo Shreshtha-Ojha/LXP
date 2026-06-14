@@ -26,7 +26,7 @@ const NAV_ITEMS = [
 // TODO: same as ASSOCIATE_ROLE above — nav visibility for the admin tools
 // should come from the permission engine / nav config, not a hardcoded role
 // list (CLAUDE.md Rule 1).
-const ADMIN_DROPDOWN_ROLES = ['ld_admin', 'competency_leader', 'trainer']
+const ADMIN_DROPDOWN_ROLES = ['super_admin', 'ld_admin', 'competency_leader', 'trainer']
 
 const ADMIN_MENU_ITEMS = [
   { label: 'Learning paths', href: '/admin/paths' },

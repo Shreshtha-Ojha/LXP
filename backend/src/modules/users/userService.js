@@ -707,5 +707,6 @@ module.exports = {
   bulkUploadUsers,
   // exported for tests / reuse
   isOrgUnitInScope,
-  serializeUser
+  serializeUser,
+  validatePasswordPolicy
 }

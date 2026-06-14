@@ -16,6 +16,7 @@ const db = require('./db')
 
 const authRoutes = require('./modules/auth/authRoutes')
 const userRoutes = require('./modules/users/userRoutes')
+const inviteRoutes = require('./modules/users/inviteRoutes')
 const roleRoutes = require('./modules/roles/roleRoutes')
 const roleSwitchRoutes = require('./modules/roles/roleSwitchRoutes')
 const workflowRoutes = require('./modules/workflow/workflowRoutes')
@@ -52,6 +53,13 @@ app.get('/health', (req, res) => {
 app.use('/auth', authRoutes)
 app.use('/admin/users', userRoutes)
 app.use('/content/assets', contentRoutes)
+
+// inviteRoutes.publicRouter declares full paths (/users/invite/verify,
+// /users/invite/accept) and must be mounted before the authenticated /users
+// router below — these two endpoints are reached from the invitation email
+// before the recipient has a session.
+app.use(inviteRoutes.publicRouter)
+app.use('/users', inviteRoutes.router)
 
 // roleRoutes/roleSwitchRoutes/workflowRoutes/notificationRoutes/configRoutes/
 // catalogRoutes/scormRoutes/pathRoutes/assignmentRoutes/progressRoutes/
