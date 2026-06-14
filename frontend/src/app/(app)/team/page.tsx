@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useEffect, type ReactNode } from 'react'
+import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Download, Plus } from 'lucide-react'
@@ -9,6 +9,14 @@ import { getHomeRouteForRole } from '@/lib/auth'
 import { useAuthStore } from '@/store/authStore'
 import { Spinner } from '@/components/ui/Spinner'
 import { cn } from '@/lib/utils'
+import { AssignLearningModal } from '@/components/team/AssignLearningModal'
+import { PIPELINE_STATUS_META } from '@/components/team/colors'
+import {
+  SYSTEM_DESIGN_CONTENT,
+  type AssignableContent,
+  type AssignTeamMember,
+  type PromotionPipelineEntry,
+} from '@/components/team/types'
 
 // Field names mirror backend/src/modules/dashboard/dashboardService.js
 // (GET /dashboard/team) exactly. promotion_pipeline and skill_heatmap depend
@@ -35,21 +43,6 @@ interface TeamIntervention {
   description: string
   action: string
   urgency: InterventionUrgency
-}
-
-type PipelineStatus = 'ready' | 'in_progress' | 'at_risk'
-
-interface PromotionPipelineEntry {
-  user_id: string
-  name: string
-  initials: string
-  target_role: string
-  readiness_pct: number
-  pct_color: string
-  bar_color: string
-  avatar_bg: string
-  avatar_color: string
-  status: PipelineStatus
 }
 
 type HeatmapLevel = 'adv' | 'int' | 'beg' | 'missing'
@@ -110,17 +103,27 @@ const INTERVENTION_CTA: Record<string, string> = {
   certification_expiring: 'Assign path →',
 }
 
-const PIPELINE_STATUS_META: Record<PipelineStatus, { label: string; color: string; bg: string; border: string }> = {
-  ready: { label: 'Ready', color: COLOR.green, bg: 'rgba(74,222,128,0.08)', border: 'rgba(74,222,128,0.2)' },
-  in_progress: { label: 'In progress', color: COLOR.amber, bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.2)' },
-  at_risk: { label: 'At risk', color: COLOR.red, bg: 'rgba(248,113,113,0.08)', border: 'rgba(248,113,113,0.2)' },
-}
-
 const HEATMAP_LEVEL_META: Record<HeatmapLevel, { bg: string; color: string; label: string }> = {
   adv: { bg: 'rgba(74,222,128,0.15)', color: COLOR.green, label: 'Adv' },
   int: { bg: 'rgba(245,158,11,0.12)', color: COLOR.amber, label: 'Int' },
   beg: { bg: 'rgba(245,158,11,0.12)', color: COLOR.amber, label: 'Beg' },
   missing: { bg: 'rgba(248,113,113,0.12)', color: COLOR.red, label: '—' },
+}
+
+const TOAST_DURATION_MS = 4000
+
+// Dev Kapoor appears only in `interventions` (his AWS cert is expiring), not
+// in `promotion_pipeline` — this stands in for his roster entry so the
+// "Assign path →" CTA can open AssignLearningModal with him pre-selected.
+const DEV_KAPOOR_MEMBER: AssignTeamMember = {
+  user_id: 'mock-dev-kapoor',
+  initials: 'DK',
+  name: 'Dev Kapoor',
+  target_role: 'Senior engineer',
+  readiness_pct: 0,
+  status: 'in_progress',
+  avatar_bg: 'rgba(255,255,255,0.06)',
+  avatar_color: COLOR.muted40,
 }
 
 // Placeholder dataset shown while /dashboard/team is loading-with-no-signal
@@ -330,7 +333,7 @@ function StatCard({ label, value, valueColor = COLOR.title, delta, deltaColor, d
   )
 }
 
-function PageHeader({ teamSize }: { teamSize: number | null }) {
+function PageHeader({ teamSize, onAssignClick }: { teamSize: number | null; onAssignClick: () => void }) {
   return (
     <div className="mb-5 flex items-center justify-between">
       <div>
@@ -352,6 +355,7 @@ function PageHeader({ teamSize }: { teamSize: number | null }) {
         </button>
         <button
           type="button"
+          onClick={onAssignClick}
           className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors hover:bg-[rgba(124,106,247,0.08)]"
           style={{ color: COLOR.accentText, border: `0.5px solid ${COLOR.accentBorder}` }}
         >
@@ -363,7 +367,7 @@ function PageHeader({ teamSize }: { teamSize: number | null }) {
   )
 }
 
-function InterventionRow({ item, isLast }: { item: TeamIntervention; isLast: boolean }) {
+function InterventionRow({ item, isLast, onAction }: { item: TeamIntervention; isLast: boolean; onAction: (item: TeamIntervention) => void }) {
   return (
     <div
       className={cn('flex gap-2.5 rounded-[7px] px-2.5 py-2', !isLast && 'mb-1.5')}
@@ -380,14 +384,14 @@ function InterventionRow({ item, isLast }: { item: TeamIntervention; isLast: boo
           {item.description}
         </span>
       </div>
-      <span className="mt-px shrink-0 cursor-pointer text-xs" style={{ color: COLOR.accentMuted }}>
+      <span className="mt-px shrink-0 cursor-pointer text-xs" style={{ color: COLOR.accentMuted }} onClick={() => onAction(item)}>
         {INTERVENTION_CTA[item.type] ?? 'Review →'}
       </span>
     </div>
   )
 }
 
-function InterventionPanel({ items }: { items: TeamIntervention[] }) {
+function InterventionPanel({ items, onAction }: { items: TeamIntervention[]; onAction: (item: TeamIntervention) => void }) {
   return (
     <div>
       <div className="mb-2.5 text-[10px] uppercase tracking-wide" style={{ color: COLOR.muted25 }}>
@@ -400,7 +404,7 @@ function InterventionPanel({ items }: { items: TeamIntervention[] }) {
           </div>
         ) : (
           items.map((item, index) => (
-            <InterventionRow key={`${item.user_id}-${item.type}`} item={item} isLast={index === items.length - 1} />
+            <InterventionRow key={`${item.user_id}-${item.type}`} item={item} isLast={index === items.length - 1} onAction={onAction} />
           ))
         )}
       </Panel>
@@ -408,11 +412,11 @@ function InterventionPanel({ items }: { items: TeamIntervention[] }) {
   )
 }
 
-function PipelineRow({ entry, isLast }: { entry: PromotionPipelineEntry; isLast: boolean }) {
+function PipelineRow({ entry, isLast, onAssign }: { entry: PromotionPipelineEntry; isLast: boolean; onAssign: (entry: PromotionPipelineEntry) => void }) {
   const meta = PIPELINE_STATUS_META[entry.status]
 
   return (
-    <div className="flex items-center gap-2.5 py-[7px]" style={!isLast ? { borderBottom: `0.5px solid ${COLOR.hairline}` } : undefined}>
+    <div className="group flex items-center gap-2.5 py-[7px]" style={!isLast ? { borderBottom: `0.5px solid ${COLOR.hairline}` } : undefined}>
       <div
         className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-medium"
         style={{ backgroundColor: entry.avatar_bg, color: entry.avatar_color }}
@@ -435,17 +439,34 @@ function PipelineRow({ entry, isLast }: { entry: PromotionPipelineEntry; isLast:
           <div className="h-full rounded-[2px]" style={{ width: `${entry.readiness_pct}%`, backgroundColor: entry.bar_color }} />
         </div>
       </div>
-      <span
-        className="shrink-0 rounded text-[11px]"
-        style={{ color: meta.color, backgroundColor: meta.bg, border: `0.5px solid ${meta.border}`, padding: '2px 8px' }}
-      >
-        {meta.label}
-      </span>
+      <div className="relative flex shrink-0 items-center justify-end">
+        <span
+          className="rounded text-[11px] transition-opacity group-hover:opacity-0"
+          style={{ color: meta.color, backgroundColor: meta.bg, border: `0.5px solid ${meta.border}`, padding: '2px 8px' }}
+        >
+          {meta.label}
+        </span>
+        <span
+          onClick={() => onAssign(entry)}
+          className="absolute right-0 cursor-pointer text-[11px] opacity-0 transition-opacity group-hover:opacity-100"
+          style={{ color: COLOR.accentMuted }}
+        >
+          Assign →
+        </span>
+      </div>
     </div>
   )
 }
 
-function PromotionPipelinePanel({ entries, teamSize }: { entries: PromotionPipelineEntry[]; teamSize: number | null }) {
+function PromotionPipelinePanel({
+  entries,
+  teamSize,
+  onAssign,
+}: {
+  entries: PromotionPipelineEntry[]
+  teamSize: number | null
+  onAssign: (entry: PromotionPipelineEntry) => void
+}) {
   return (
     <Panel className="px-[18px] py-4">
       <div className="mb-1 flex items-center">
@@ -461,7 +482,9 @@ function PromotionPipelinePanel({ entries, teamSize }: { entries: PromotionPipel
           Promotion pipeline will appear once career targets and readiness scoring are configured
         </div>
       ) : (
-        entries.map((entry, index) => <PipelineRow key={entry.user_id} entry={entry} isLast={index === entries.length - 1} />)
+        entries.map((entry, index) => (
+          <PipelineRow key={entry.user_id} entry={entry} isLast={index === entries.length - 1} onAssign={onAssign} />
+        ))
       )}
     </Panel>
   )
@@ -558,6 +581,13 @@ function TeamPageSkeleton() {
   )
 }
 
+/** Configures which members AssignLearningModal opens with — and any pre-selections. */
+interface AssignModalState {
+  teamMembers: AssignTeamMember[]
+  initialSelectedUserIds?: string[]
+  initialContent?: AssignableContent
+}
+
 export default function TeamPage() {
   const router = useRouter()
   const activeRole = useAuthStore((state) => state.activeRole)
@@ -578,6 +608,15 @@ export default function TeamPage() {
     enabled: !belongsOnAssociateDashboard,
   })
 
+  const [assignModal, setAssignModal] = useState<AssignModalState | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!toast) return
+    const timer = setTimeout(() => setToast(null), TOAST_DURATION_MS)
+    return () => clearTimeout(timer)
+  }, [toast])
+
   if (belongsOnAssociateDashboard || isLoading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
@@ -590,9 +629,26 @@ export default function TeamPage() {
   const { summary } = team
   const teamSize = team.team_size ?? null
 
+  function openAssignModal(config: AssignModalState) {
+    setAssignModal(config)
+  }
+
+  function handleAssignFromPipeline(entry: PromotionPipelineEntry) {
+    openAssignModal({ teamMembers: team.promotion_pipeline, initialSelectedUserIds: [entry.user_id] })
+  }
+
+  function handleInterventionAction(item: TeamIntervention) {
+    if (item.type !== 'certification_expiring') return
+    openAssignModal({
+      teamMembers: [...team.promotion_pipeline, DEV_KAPOOR_MEMBER],
+      initialSelectedUserIds: [DEV_KAPOOR_MEMBER.user_id],
+      initialContent: SYSTEM_DESIGN_CONTENT,
+    })
+  }
+
   return (
     <div className="flex flex-col gap-5">
-      <PageHeader teamSize={teamSize} />
+      <PageHeader teamSize={teamSize} onAssignClick={() => openAssignModal({ teamMembers: team.promotion_pipeline })} />
 
       <div className="grid grid-cols-2 gap-2.5 md:grid-cols-5">
         <StatCard
@@ -631,12 +687,34 @@ export default function TeamPage() {
         />
       </div>
 
-      <InterventionPanel items={team.interventions} />
+      <InterventionPanel items={team.interventions} onAction={handleInterventionAction} />
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <PromotionPipelinePanel entries={team.promotion_pipeline} teamSize={teamSize} />
+        <PromotionPipelinePanel entries={team.promotion_pipeline} teamSize={teamSize} onAssign={handleAssignFromPipeline} />
         <SkillHeatmapPanel rows={team.skill_heatmap} />
       </div>
+
+      {assignModal && (
+        <AssignLearningModal
+          teamMembers={assignModal.teamMembers}
+          initialSelectedUserIds={assignModal.initialSelectedUserIds}
+          initialContent={assignModal.initialContent}
+          onClose={() => setAssignModal(null)}
+          onSuccess={() => {
+            setAssignModal(null)
+            setToast('Learning assigned — your team will be notified')
+          }}
+        />
+      )}
+
+      {toast && (
+        <div
+          className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-[8px] px-4 py-2.5 text-[13px] shadow-lg"
+          style={{ backgroundColor: COLOR.card, border: `0.5px solid ${COLOR.cardBorder}`, color: COLOR.title }}
+        >
+          {toast}
+        </div>
+      )}
     </div>
   )
 }
