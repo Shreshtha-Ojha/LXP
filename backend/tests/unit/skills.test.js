@@ -358,12 +358,12 @@ describe('getGapAnalysis', () => {
           {
             skill_id: 'skill-1', skill_name: 'Kubernetes',
             required_level_id: 'lvl-3', required_level_name: 'Advanced', required_level_order: 3,
-            current_level_name: 'Intermediate', gap_levels: '1'
+            current_level_name: 'Intermediate', current_level_order: 2, gap_levels: '1'
           },
           {
             skill_id: 'skill-2', skill_name: 'Communication',
             required_level_id: 'lvl-2', required_level_name: 'Intermediate', required_level_order: 2,
-            current_level_name: 'Intermediate', gap_levels: '0'
+            current_level_name: 'Intermediate', current_level_order: 2, gap_levels: '0'
           }
         ]
       })
@@ -379,12 +379,13 @@ describe('getGapAnalysis', () => {
       readiness_pct: 50,
       gaps: [
         {
-          skill_name: 'Kubernetes', current_level: 'Intermediate', required_level: 'Advanced', gap_levels: 1,
+          skill_name: 'Kubernetes', current_level: 'Intermediate', current_level_order: 2,
+          required_level: 'Advanced', required_level_order: 3, gap_levels: 1,
           recommended_content: [{ id: 'asset-1', title: 'Advanced Kubernetes', content_type: 'video', duration_minutes: 45 }]
         }
       ],
       met: [
-        { skill_name: 'Communication', current_level: 'Intermediate', required_level: 'Intermediate' }
+        { skill_name: 'Communication', current_level: 'Intermediate', current_level_order: 2, required_level: 'Intermediate', required_level_order: 2 }
       ]
     })
 

@@ -40,12 +40,13 @@ function formatDueLabel(dueDate: string): string {
   return `Due in ${days} days`
 }
 
-type StatusTagTone = 'success' | 'warning' | 'accent'
+type StatusTagTone = 'success' | 'warning' | 'accent' | 'reason'
 
 const TONE_STYLES: Record<StatusTagTone, { color: string; backgroundColor: string; border: string }> = {
   success: { color: COLOR.success, backgroundColor: COLOR.successBg, border: `0.5px solid ${COLOR.successBorder}` },
   warning: { color: COLOR.warning, backgroundColor: COLOR.warningBg, border: `0.5px solid ${COLOR.warningBorder}` },
   accent: { color: COLOR.accent, backgroundColor: COLOR.accentBadgeBg, border: `0.5px solid ${COLOR.accentBadgeBorder}` },
+  reason: { color: '#9d8ff7', backgroundColor: 'rgba(124,106,247,0.1)', border: '0.5px solid rgba(124,106,247,0.25)' },
 }
 
 function StatusTag({ tone, children }: { tone: StatusTagTone; children: ReactNode }) {
@@ -61,28 +62,35 @@ function StatusTag({ tone, children }: { tone: StatusTagTone; children: ReactNod
  * always shows "Completed", an in-progress course shows no tag (the
  * progress bar at the bottom carries that signal instead), an open
  * assignment with a due date shows "Due in X days", and everything else
- * falls back to the content-type badge.
+ * falls back to the content-type badge — or, when this card is a
+ * recommendation, the reason it was recommended (e.g. "Closes gap in
+ * Kubernetes") in place of that content-type badge.
  */
-function getStatusTag(course: CatalogueCourse): ReactNode | null {
+function getStatusTag(course: CatalogueCourse, reasonLabel?: string): ReactNode | null {
   if (course.status === 'completed') return <StatusTag tone="success">Completed</StatusTag>
   if (course.status === 'in_progress') return null
   if (course.status === 'assigned' && course.due_date) {
     return <StatusTag tone="warning">{formatDueLabel(course.due_date)}</StatusTag>
   }
+  if (reasonLabel) return <StatusTag tone="reason">{reasonLabel}</StatusTag>
   return <StatusTag tone="accent">{formatContentTypeLabel(course.content_type)}</StatusTag>
 }
 
 export interface CourseCardProps {
   course: CatalogueCourse
   className?: string
+  /** Replaces the content-type badge with this recommendation reason (e.g. "Closes gap in Kubernetes"). */
+  reasonLabel?: string
+  /** Shows a small violet dot in the top-right corner indicating this course matches the learner's skill gaps. */
+  recommended?: boolean
 }
 
-export function CourseCard({ course, className }: CourseCardProps) {
+export function CourseCard({ course, className, reasonLabel, recommended }: CourseCardProps) {
   const router = useRouter()
   const skills = course.skills ?? []
   const visibleSkills = skills.slice(0, 2)
   const extraSkillCount = skills.length - visibleSkills.length
-  const statusTag = getStatusTag(course)
+  const statusTag = getStatusTag(course, reasonLabel)
 
   function navigateToAsset() {
     router.push(`/learn/${course.id}`)
@@ -102,11 +110,19 @@ export function CourseCard({ course, className }: CourseCardProps) {
       onClick={navigateToAsset}
       onKeyDown={handleKeyDown}
       className={cn(
-        'flex h-full cursor-pointer flex-col rounded-[10px] px-5 py-4 transition-colors hover:border-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        'relative flex h-full cursor-pointer flex-col rounded-[10px] px-5 py-4 transition-colors hover:border-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
         className
       )}
       style={{ backgroundColor: COLOR.card, border: `0.5px solid ${COLOR.cardBorder}` }}
     >
+      {recommended && (
+        <span
+          className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full"
+          style={{ backgroundColor: COLOR.accent }}
+          title="Recommended based on your skill gaps"
+        />
+      )}
+
       {statusTag && <div className="mb-2.5">{statusTag}</div>}
 
       <h3 className="line-clamp-2 text-sm font-medium text-white" style={{ lineHeight: 1.4 }}>

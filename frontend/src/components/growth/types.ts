@@ -54,7 +54,9 @@ export interface RecommendedContentItem {
 export interface SkillGap {
   skill_name: string
   current_level: string | null
+  current_level_order: number | null
   required_level: string
+  required_level_order: number
   gap_levels: number
   recommended_content: RecommendedContentItem[]
 }
@@ -62,7 +64,9 @@ export interface SkillGap {
 export interface MetRequirement {
   skill_name: string
   current_level: string | null
+  current_level_order: number | null
   required_level: string
+  required_level_order: number
 }
 
 export interface GapAnalysisResponse {

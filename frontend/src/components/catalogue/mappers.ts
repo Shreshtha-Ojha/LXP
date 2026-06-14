@@ -4,6 +4,7 @@ import type {
   ApiProgressItem,
   CatalogueCourse,
   CourseStatus,
+  RecommendationItem,
 } from './types'
 
 interface Overlay {
@@ -25,7 +26,7 @@ interface DerivedStatus {
  * Precedence matches CourseCard's badge rules: completed beats in-progress
  * beats an open assignment beats the default content-type badge.
  */
-function deriveStatus({ progress, assignment }: Overlay): DerivedStatus {
+export function deriveStatus({ progress, assignment }: Overlay): DerivedStatus {
   if (progress?.status === 'completed') return { status: 'completed' }
 
   if (progress?.status === 'in_progress' || progress?.status === 'started') {
@@ -48,6 +49,18 @@ export function assetToCourse(asset: ApiLearningAsset, overlay: Overlay = {}): C
     duration_minutes: asset.durationMinutes,
     proficiency_level: asset.proficiencyLevel?.name ?? 'All levels',
     skills: asset.skills.map((skill) => skill.name),
+    ...deriveStatus(overlay),
+  }
+}
+
+/** Converts a /skills/recommendations entry into the CourseCard view model. */
+export function recommendationToCourse(item: RecommendationItem, overlay: Overlay = {}): CatalogueCourse {
+  return {
+    id: item.asset_id,
+    title: item.title,
+    content_type: item.content_type,
+    duration_minutes: item.duration_minutes,
+    skills: item.skills,
     ...deriveStatus(overlay),
   }
 }

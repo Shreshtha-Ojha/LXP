@@ -376,7 +376,7 @@ async function validateSkill({ actor, recordId, input, ipAddress, userAgent }) {
 const GAP_ANALYSIS_SELECT = `
   SELECT rsr.skill_id, s.name AS skill_name,
          req.id AS required_level_id, req.name AS required_level_name, req.level_order AS required_level_order,
-         cur.name AS current_level_name,
+         cur.name AS current_level_name, cur.level_order AS current_level_order,
          (req.level_order - COALESCE(cur.level_order, 0)) AS gap_levels
   FROM role_skill_requirements rsr
   JOIN skills s ON s.id = rsr.skill_id
@@ -399,8 +399,10 @@ async function computeGapAnalysis({ actor }) {
     skillId: row.skill_id,
     skillName: row.skill_name,
     currentLevelName: row.current_level_name,
+    currentLevelOrder: row.current_level_order != null ? Number(row.current_level_order) : null,
     requiredLevelId: row.required_level_id,
     requiredLevelName: row.required_level_name,
+    requiredLevelOrder: Number(row.required_level_order),
     gapLevels: Number(row.gap_levels)
   }))
 
@@ -432,7 +434,9 @@ async function getGapAnalysis({ actor }) {
       gaps.push({
         skill_name: req.skillName,
         current_level: req.currentLevelName || null,
+        current_level_order: req.currentLevelOrder,
         required_level: req.requiredLevelName,
+        required_level_order: req.requiredLevelOrder,
         gap_levels: req.gapLevels,
         recommended_content: contentResult.rows.map((r) => ({
           id: r.id, title: r.title, content_type: r.content_type, duration_minutes: r.duration_minutes
@@ -442,7 +446,9 @@ async function getGapAnalysis({ actor }) {
       met.push({
         skill_name: req.skillName,
         current_level: req.currentLevelName || null,
-        required_level: req.requiredLevelName
+        current_level_order: req.currentLevelOrder,
+        required_level: req.requiredLevelName,
+        required_level_order: req.requiredLevelOrder
       })
     }
   }

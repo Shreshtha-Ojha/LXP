@@ -1,63 +1,25 @@
 'use client'
 
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useMemo, type KeyboardEvent, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import { AlertCircle, ArrowRight, Flame, Target } from 'lucide-react'
-import { api, getErrorMessage } from '@/lib/api'
+import { ArrowRight, Flame, Target } from 'lucide-react'
+import { api } from '@/lib/api'
 import { getHomeRouteForRole } from '@/lib/auth'
 import { useAuthStore } from '@/store/authStore'
 import { usePathProgressStore } from '@/store/pathProgressStore'
-import { EmptyState } from '@/components/ui/EmptyState'
 import { Spinner } from '@/components/ui/Spinner'
+import type { ApiAssignment, AssignmentsResponse, RecommendationItem, RecommendationsResponse } from '@/components/catalogue/types'
+import type { GapAnalysisResponse, MetRequirement, SkillGap } from '@/components/growth/types'
+import { mockCompetencyProgress, mockKpis, mockNextActions } from '@/components/dashboard/mockData'
+import type { BlockerDisplay, CompetencyProgressItem, DashboardResponse, NextActionDisplay } from '@/components/dashboard/types'
 
 // Field names mirror backend/src/modules/dashboard/dashboardService.js
-// (GET /dashboard/me) exactly. promotion_readiness and competency_progress
-// are returned as null/empty until the Skill/CareerAspiration schema lands
-// in Release 2/3 — this page renders an empty state for those sections
-// until then, per AGENTS.md ("do not build ahead of the current release").
-interface PromotionBlockingItem {
-  type: string
-  description: string
-  urgency: string
-}
-
-interface NextAction {
-  title: string
-  type: string
-  duration_minutes: number | null
-  closes_blocker: boolean
-}
-
-interface CompetencyProgressItem {
-  name: string
-  current_level: string
-  required_level: string
-  progress_pct: number
-  gap: boolean
-}
-
-interface DashboardResponse {
-  greeting: {
-    name: string | null
-    streak_days: number
-  }
-  promotion_readiness: {
-    target_role: string | null
-    readiness_pct: number | null
-    blocking_items: PromotionBlockingItem[]
-  }
-  kpis: {
-    skills_validated: number
-    skills_total: number
-    blocking_count: number
-    assignments_due_soon: number
-    certifications_active: number
-  }
-  next_actions: NextAction[]
-  competency_progress: CompetencyProgressItem[]
-}
+// (GET /dashboard/me) exactly. promotion_readiness, next_actions, and
+// competency_progress are Release 0 placeholders — this page now sources
+// "what to do next", "what's blocking my growth", and "skills required" from
+// /skills/recommendations, /assignments/me, and /skills/gap-analysis instead.
 
 const COLOR = {
   fg: '#f2f2f3',
@@ -74,35 +36,36 @@ const COLOR = {
   accentEyebrow: 'rgba(124,106,247,0.7)',
   amber: '#f59e0b',
   green: '#4ade80',
+  greenSubtle: 'rgba(74,222,128,0.6)',
+  red: '#f87171',
 } as const
 
 const PILL_TONE = {
   amber: { color: COLOR.amber, bg: 'rgba(245,158,11,0.1)', border: 'rgba(245,158,11,0.2)' },
   green: { color: COLOR.green, bg: 'rgba(74,222,128,0.1)', border: 'rgba(74,222,128,0.2)' },
+  red: { color: COLOR.red, bg: 'rgba(248,113,113,0.1)', border: 'rgba(248,113,113,0.2)' },
   muted: { color: COLOR.muted35, bg: 'rgba(255,255,255,0.04)', border: 'rgba(255,255,255,0.08)' },
 } as const
 
 type PillTone = keyof typeof PILL_TONE
 
-const BLOCKER_TYPE_LABEL: Record<string, string> = {
-  assessment: 'Required',
-  skill_gap: 'Skill gap',
-  certification: 'Renewal due',
-}
-
-const ACTION_TYPE_LABEL: Record<string, string> = {
-  assessment: 'Assessment',
-  course: 'Course',
-  video: 'Video',
-  pdf: 'PDF',
-  scorm: 'SCORM',
-  article: 'Article',
-  external_link: 'Link',
-  path: 'Learning path',
-}
-
 async function fetchDashboard(): Promise<DashboardResponse> {
   const { data } = await api.get<DashboardResponse>('/dashboard/me')
+  return data
+}
+
+async function fetchRecommendations(): Promise<RecommendationsResponse> {
+  const { data } = await api.get<RecommendationsResponse>('/skills/recommendations')
+  return data
+}
+
+async function fetchAssignments(): Promise<AssignmentsResponse> {
+  const { data } = await api.get<AssignmentsResponse>('/assignments/me')
+  return data
+}
+
+async function fetchGapAnalysis(): Promise<GapAnalysisResponse> {
+  const { data } = await api.get<GapAnalysisResponse>('/skills/gap-analysis')
   return data
 }
 
@@ -118,11 +81,67 @@ function formatDuration(minutes: number): string {
   return `${Number.isInteger(hours) ? hours : hours.toFixed(1)}h`
 }
 
-function formatActionMeta(action: NextAction): string {
-  const parts = [ACTION_TYPE_LABEL[action.type] ?? action.type]
-  if (action.duration_minutes != null) parts.push(formatDuration(action.duration_minutes))
-  if (action.closes_blocker) parts.push('closes blocker')
-  return parts.join(' · ')
+function formatDueDate(dueDate: string): string {
+  return new Date(dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+// --- gap-analysis -> "Skills required" panel rows ---------------------------
+
+/**
+ * progress_pct is derived from current/required level_order rather than a
+ * hardcoded scale (e.g. "/4") — proficiency_levels is a per-tenant
+ * configurable table, so the number of levels isn't fixed (CLAUDE.md Rule 1).
+ */
+function gapToCompetencyItem(gap: SkillGap): CompetencyProgressItem {
+  return {
+    name: gap.skill_name,
+    current_level: gap.current_level ?? 'Not started',
+    required_level: gap.required_level,
+    progress_pct: Math.min(100, ((gap.current_level_order ?? 0) / gap.required_level_order) * 100),
+    gap: true,
+  }
+}
+
+function metToCompetencyItem(met: MetRequirement): CompetencyProgressItem {
+  return {
+    name: met.skill_name,
+    current_level: met.current_level ?? 'Not started',
+    required_level: met.required_level,
+    progress_pct: Math.min(100, ((met.current_level_order ?? 0) / met.required_level_order) * 100),
+    gap: false,
+  }
+}
+
+// --- recommendations / assignments -> "What to do next" rows ----------------
+
+function assignmentToNextAction(assignment: ApiAssignment): NextActionDisplay {
+  const mandatoryLabel = assignment.isMandatory ? 'mandatory' : 'optional'
+  const meta = assignment.dueDate ? `Due ${formatDueDate(assignment.dueDate)} · ${mandatoryLabel}` : mandatoryLabel
+  return {
+    title: assignment.title ?? 'Untitled assignment',
+    typeLabel: 'Assignment',
+    typeColor: COLOR.amber,
+    meta,
+    href: '/learn',
+  }
+}
+
+function recommendationToNextAction(item: RecommendationItem): NextActionDisplay {
+  const meta = item.duration_minutes != null ? `${formatDuration(item.duration_minutes)} · ${item.reason}` : item.reason
+  return {
+    title: item.title,
+    typeLabel: 'Course',
+    typeColor: COLOR.accent,
+    meta,
+    href: `/learn/${item.asset_id}`,
+  }
+}
+
+/** Logs a query failure once (Technical Requirements: silent fallback + console.error only, no error UI). */
+function useLogQueryError(label: string, error: unknown) {
+  useEffect(() => {
+    if (error) console.error(`[dashboard] ${label} failed`, error)
+  }, [label, error])
 }
 
 // --- presentational helpers -------------------------------------------------
@@ -147,14 +166,6 @@ function PanelHeader({ title, action }: { title: string; action?: { label: strin
           {action.label}
         </Link>
       )}
-    </div>
-  )
-}
-
-function PanelEmptyRow({ children }: { children: ReactNode }) {
-  return (
-    <div className="px-4 py-6 text-center text-sm" style={{ color: COLOR.muted35 }}>
-      {children}
     </div>
   )
 }
@@ -217,16 +228,11 @@ function KpiCard({ label, value, valueSub, valueColor = COLOR.fg, delta, deltaCo
   )
 }
 
-function SkillProgressBanner({
-  promo,
-  skillsValidated,
-  skillsTotal,
-}: {
-  promo: DashboardResponse['promotion_readiness']
-  skillsValidated: number
-  skillsTotal: number
-}) {
-  const hasReadiness = promo.target_role != null && promo.readiness_pct != null
+function SkillProgressBanner({ gapAnalysis }: { gapAnalysis: GapAnalysisResponse | undefined }) {
+  const hasTargetRole = gapAnalysis?.target_role != null
+  const metCount = gapAnalysis?.met.length ?? 0
+  const totalRequired = metCount + (gapAnalysis?.gaps.length ?? 0)
+  const readinessPct = gapAnalysis?.readiness_pct ?? 0
 
   return (
     <div
@@ -244,13 +250,13 @@ function SkillProgressBanner({
         <div className="text-[10px] font-medium uppercase tracking-wide" style={{ color: COLOR.accentEyebrow }}>
           Skill progress
         </div>
-        {hasReadiness ? (
+        {hasTargetRole ? (
           <>
             <div className="mt-0.5 text-sm font-medium" style={{ color: COLOR.accentTitle }}>
-              {promo.target_role} — skills you&apos;re building toward
+              {gapAnalysis?.target_role} — skills you&apos;re building toward
             </div>
             <div className="mt-0.5 text-xs" style={{ color: COLOR.muted35 }}>
-              You have {skillsValidated} of {skillsTotal} required skills at the right level
+              You have {metCount} of {totalRequired} required skills at the right level
             </div>
           </>
         ) : (
@@ -265,16 +271,13 @@ function SkillProgressBanner({
         )}
       </div>
 
-      {hasReadiness && (
+      {hasTargetRole && (
         <div className="ml-auto flex shrink-0 flex-col items-end gap-1.5">
           <div className="text-[22px] font-medium" style={{ color: COLOR.accentTitle }}>
-            {promo.readiness_pct}%
+            {readinessPct}%
           </div>
           <div className="h-1 w-20 overflow-hidden rounded-full" style={{ backgroundColor: 'rgba(124,106,247,0.15)' }}>
-            <div
-              className="h-full rounded-full"
-              style={{ width: `${promo.readiness_pct}%`, backgroundColor: COLOR.accent }}
-            />
+            <div className="h-full rounded-full" style={{ width: `${readinessPct}%`, backgroundColor: COLOR.accent }} />
           </div>
           <Link href="/growth" className="text-[11px]" style={{ color: 'rgba(124,106,247,0.6)' }}>
             View skill gaps →
@@ -285,28 +288,29 @@ function SkillProgressBanner({
   )
 }
 
-function BlockingGrowthPanel({ items }: { items: PromotionBlockingItem[] }) {
+function BlockingGrowthPanel({ items }: { items: BlockerDisplay[] }) {
+  const visible = items.slice(0, 3)
+
   return (
     <Panel>
       <PanelHeader title="What's blocking my growth" action={{ label: 'See all', href: '/growth' }} />
-      {items.length === 0 ? (
-        <PanelEmptyRow>Nothing blocking your growth right now</PanelEmptyRow>
+      {visible.length === 0 ? (
+        <div className="flex items-center justify-center gap-2 px-4 py-6">
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: COLOR.green }} />
+          <span className="text-[13px]" style={{ color: COLOR.greenSubtle }}>
+            Nothing blocking your growth right now
+          </span>
+        </div>
       ) : (
-        items.map((item, index) => (
+        visible.map((item, index) => (
           <div
-            key={`${item.type}-${index}`}
+            key={item.key}
             className="flex items-center gap-3 px-4 py-3"
-            style={index < items.length - 1 ? { borderBottom: `0.5px solid ${COLOR.hairline}` } : undefined}
+            style={index < visible.length - 1 ? { borderBottom: `0.5px solid ${COLOR.hairline}` } : undefined}
           >
-            <span
-              className="h-1.5 w-1.5 shrink-0 rounded-full"
-              style={{ backgroundColor: item.urgency === 'required' ? COLOR.amber : COLOR.muted25 }}
-            />
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: PILL_TONE[item.tone].color }} />
             <span className="flex-1 text-sm text-fg">{item.description}</span>
-            <Pill
-              label={BLOCKER_TYPE_LABEL[item.type] ?? 'Action needed'}
-              tone={item.urgency === 'required' ? 'amber' : 'muted'}
-            />
+            <Pill label={item.tag} tone={item.tone} />
           </div>
         ))
       )}
@@ -314,54 +318,72 @@ function BlockingGrowthPanel({ items }: { items: PromotionBlockingItem[] }) {
   )
 }
 
-function NextActionsPanel({ actions }: { actions: NextAction[] }) {
-  const items = actions.slice(0, 3)
+function NextActionsPanel({ items }: { items: NextActionDisplay[] }) {
+  const router = useRouter()
+  const visible = items.slice(0, 3)
+
+  function navigateTo(href: string) {
+    router.push(href)
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>, href: string) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      navigateTo(href)
+    }
+  }
 
   return (
     <Panel>
       <PanelHeader title="What to do next" />
       <div className="flex flex-col gap-2 p-3">
-        {items.length === 0 ? (
-          <PanelEmptyRow>Nothing assigned right now</PanelEmptyRow>
-        ) : (
-          items.map((action, index) => (
-            <div
-              key={`${action.title}-${index}`}
-              className="flex cursor-pointer items-center gap-3 rounded-[7px] px-3 py-2.5"
-              style={{ backgroundColor: 'rgba(255,255,255,0.02)', border: '0.5px solid rgba(255,255,255,0.06)' }}
+        {visible.map((item, index) => (
+          <div
+            key={`${item.title}-${index}`}
+            role="button"
+            tabIndex={0}
+            onClick={() => navigateTo(item.href)}
+            onKeyDown={(event) => handleKeyDown(event, item.href)}
+            className="flex cursor-pointer items-center gap-3 rounded-[7px] px-3 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            style={{ backgroundColor: 'rgba(255,255,255,0.02)', border: '0.5px solid rgba(255,255,255,0.06)' }}
+          >
+            <span
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-medium"
+              style={{ backgroundColor: 'rgba(124,106,247,0.15)', color: COLOR.accent }}
             >
-              <span
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-medium"
-                style={{ backgroundColor: 'rgba(124,106,247,0.15)', color: COLOR.accent }}
-              >
-                {index + 1}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm text-fg">{action.title}</div>
-                <div className="mt-0.5 text-xs" style={{ color: COLOR.muted35 }}>
-                  {formatActionMeta(action)}
-                </div>
+              {index + 1}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm text-fg">{item.title}</div>
+              <div className="mt-0.5 text-xs" style={{ color: COLOR.muted35 }}>
+                <span style={{ color: item.typeColor }}>{item.typeLabel}</span> · {item.meta}
               </div>
-              <ArrowRight className="h-4 w-4 shrink-0" style={{ color: COLOR.muted25 }} />
             </div>
-          ))
-        )}
+            <ArrowRight className="h-4 w-4 shrink-0" style={{ color: COLOR.muted25 }} />
+          </div>
+        ))}
       </div>
     </Panel>
   )
 }
 
-function CompetencyPanel({ targetRole, items }: { targetRole: string | null; items: CompetencyProgressItem[] }) {
+function CompetencyPanel({
+  targetRole,
+  items,
+  usingMock,
+}: {
+  targetRole: string | null
+  items: CompetencyProgressItem[]
+  usingMock: boolean
+}) {
   return (
-    <Panel>
-      <PanelHeader
-        title={targetRole ? `Skills required for ${targetRole}` : 'Skills required'}
-        action={{ label: 'View full profile', href: '/growth' }}
-      />
-      {items.length === 0 ? (
-        <PanelEmptyRow>Your competency profile will appear here once skill validation begins</PanelEmptyRow>
-      ) : (
-        items.map((item, index) => (
+    <div className="flex flex-col gap-2">
+      <Panel>
+        <PanelHeader
+          title={targetRole ? `Skills required for ${targetRole}` : 'Skills required'}
+          action={{ label: 'View full profile', href: '/growth' }}
+        />
+        {items.map((item, index) => (
           <div
             key={item.name}
             className="flex items-center gap-4 px-4 py-3"
@@ -379,9 +401,14 @@ function CompetencyPanel({ targetRole, items }: { targetRole: string | null; ite
             </span>
             <Pill label={item.gap ? 'Needs work' : 'Achieved'} tone={item.gap ? 'amber' : 'green'} />
           </div>
-        ))
+        ))}
+      </Panel>
+      {usingMock && (
+        <p className="text-[12px]" style={{ color: COLOR.muted30 }}>
+          Set your target role to see personalised gaps
+        </p>
       )}
-    </Panel>
+    </div>
   )
 }
 
@@ -400,18 +427,115 @@ export default function DashboardPage() {
     }
   }, [belongsOnTeamDashboard, router])
 
-  const {
-    data,
-    isLoading,
-    isError,
-    error,
-  } = useQuery({
+  const dashboardQuery = useQuery({
     queryKey: ['dashboard-me'],
     queryFn: fetchDashboard,
     enabled: !belongsOnTeamDashboard,
+    staleTime: 2 * 60 * 1000,
+  })
+  const recommendationsQuery = useQuery({
+    queryKey: ['recommendations'],
+    queryFn: fetchRecommendations,
+    enabled: !belongsOnTeamDashboard,
+    staleTime: 5 * 60 * 1000,
+  })
+  const assignmentsQuery = useQuery({
+    queryKey: ['assignments-me'],
+    queryFn: fetchAssignments,
+    enabled: !belongsOnTeamDashboard,
+    staleTime: 2 * 60 * 1000,
+  })
+  const gapAnalysisQuery = useQuery({
+    queryKey: ['gap-analysis'],
+    queryFn: fetchGapAnalysis,
+    enabled: !belongsOnTeamDashboard,
+    staleTime: 5 * 60 * 1000,
   })
 
-  if (belongsOnTeamDashboard || isLoading) {
+  useLogQueryError('dashboard-me', dashboardQuery.error)
+  useLogQueryError('recommendations', recommendationsQuery.error)
+  useLogQueryError('assignments-me', assignmentsQuery.error)
+  useLogQueryError('gap-analysis', gapAnalysisQuery.error)
+
+  // "What to do next" — most overdue assignment, then gap-based
+  // recommendations, then a second recommendation or the next assignment.
+  // Falls back to mock data only when nothing real is available at all.
+  const nextActionItems = useMemo<NextActionDisplay[]>(() => {
+    const assignments = assignmentsQuery.data?.assignments ?? []
+    const recommendations = recommendationsQuery.data ?? []
+    const openAssignments = assignments.filter((a) => a.status !== 'completed')
+
+    const overdueAssignments = openAssignments
+      .filter((a) => a.isOverdue)
+      .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))
+
+    const items: NextActionDisplay[] = []
+    const usedAssignmentIds = new Set<string>()
+
+    if (overdueAssignments[0]) {
+      items.push(assignmentToNextAction(overdueAssignments[0]))
+      usedAssignmentIds.add(overdueAssignments[0].id)
+    }
+
+    if (recommendations[0]) items.push(recommendationToNextAction(recommendations[0]))
+
+    if (recommendations[1]) {
+      items.push(recommendationToNextAction(recommendations[1]))
+    } else {
+      const nextAssignment = openAssignments
+        .filter((a) => !usedAssignmentIds.has(a.id))
+        .sort((a, b) => {
+          if (!a.dueDate) return 1
+          if (!b.dueDate) return -1
+          return a.dueDate.localeCompare(b.dueDate)
+        })[0]
+      if (nextAssignment) items.push(assignmentToNextAction(nextAssignment))
+    }
+
+    return items.length > 0 ? items : mockNextActions
+  }, [assignmentsQuery.data, recommendationsQuery.data])
+
+  // "What's blocking my growth" — overdue assignments (red) first, then
+  // gap-analysis skill gaps (amber). An empty combined list is a genuinely
+  // positive state, not a missing-data one, so there's no mock fallback here.
+  const blockerItems = useMemo<BlockerDisplay[]>(() => {
+    const assignments = assignmentsQuery.data?.assignments ?? []
+    const gaps = gapAnalysisQuery.data?.gaps ?? []
+
+    const overdueBlockers: BlockerDisplay[] = assignments
+      .filter((a) => a.isOverdue && a.status !== 'completed')
+      .map((a) => ({
+        key: `overdue-${a.id}`,
+        description: `${a.title ?? 'Untitled assignment'} — overdue`,
+        tag: 'Overdue',
+        tone: 'red',
+      }))
+
+    const gapBlockers: BlockerDisplay[] = gaps.map((gap) => ({
+      key: `gap-${gap.skill_name}`,
+      description: `${gap.skill_name} — need ${gap.required_level} level`,
+      tag: 'Skill gap',
+      tone: 'amber',
+    }))
+
+    return [...overdueBlockers, ...gapBlockers]
+  }, [assignmentsQuery.data, gapAnalysisQuery.data])
+
+  // "Skills required for X" — gap-analysis gaps + met requirements, falling
+  // back to mock data when there's no target role / requirements configured.
+  const { competencyItems, usingMockCompetency } = useMemo(() => {
+    const gaps = gapAnalysisQuery.data?.gaps ?? []
+    const met = gapAnalysisQuery.data?.met ?? []
+    if (gaps.length === 0 && met.length === 0) {
+      return { competencyItems: mockCompetencyProgress, usingMockCompetency: true }
+    }
+    return {
+      competencyItems: [...gaps.map(gapToCompetencyItem), ...met.map(metToCompetencyItem)],
+      usingMockCompetency: false,
+    }
+  }, [gapAnalysisQuery.data])
+
+  if (belongsOnTeamDashboard) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
         <Spinner className="h-6 w-6" />
@@ -419,23 +543,21 @@ export default function DashboardPage() {
     )
   }
 
-  if (isError || !data) {
-    return (
-      <EmptyState
-        icon={AlertCircle}
-        heading="Couldn't load your dashboard"
-        subtext={error ? getErrorMessage(error) : undefined}
-      />
-    )
-  }
-
-  const { skills_validated, skills_total, blocking_count, assignments_due_soon, certifications_active } = data.kpis
-  const skillsPct = skills_total > 0 ? (skills_validated / skills_total) * 100 : 0
+  // KPI cards never block on the dashboard query — show mock values
+  // immediately and swap in real values as each query resolves.
+  const kpis = dashboardQuery.data?.kpis
+  const skillsValidated = kpis?.skills_validated ?? mockKpis.skills_validated
+  const skillsTotal = kpis?.skills_total ?? mockKpis.skills_total
+  const blockingCount = gapAnalysisQuery.data?.gaps.length ?? mockKpis.blocking_count
+  const assignmentsDueSoon = kpis?.assignments_due_soon ?? mockKpis.assignments_due_soon
+  const certificationsActive = kpis?.certifications_active ?? mockKpis.certifications_active
+  const skillsPct = skillsTotal > 0 ? (skillsValidated / skillsTotal) * 100 : 0
 
   const now = new Date()
   const greetingWord = getGreetingWord(now.getHours())
   const dayName = now.toLocaleDateString('en-US', { weekday: 'long' })
-  const displayName = data.greeting.name ?? 'there'
+  const displayName = dashboardQuery.data?.greeting.name ?? 'there'
+  const streakDays = dashboardQuery.data?.greeting.streak_days ?? 0
 
   return (
     <div className="flex flex-col gap-5">
@@ -455,7 +577,7 @@ export default function DashboardPage() {
             style={{ color: COLOR.amber, backgroundColor: 'rgba(245,158,11,0.1)', border: '0.5px solid rgba(245,158,11,0.2)' }}
           >
             <Flame className="h-3.5 w-3.5" />
-            {data.greeting.streak_days}-day streak
+            {streakDays}-day streak
           </div>
           <div
             className="flex items-center gap-1.5 rounded-[20px] px-3 py-1 text-[13px] font-medium"
@@ -467,66 +589,66 @@ export default function DashboardPage() {
       </div>
 
       {/* Section 2 — skill progress banner */}
-      <SkillProgressBanner
-        promo={data.promotion_readiness}
-        skillsValidated={skills_validated}
-        skillsTotal={skills_total}
-      />
+      <SkillProgressBanner gapAnalysis={gapAnalysisQuery.data} />
 
       {/* Section 3 — KPI cards */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <KpiCard
           label="Skills validated"
-          value={skills_total > 0 ? `${skills_validated}` : '—'}
-          valueSub={skills_total > 0 ? `/ ${skills_total}` : undefined}
+          value={skillsTotal > 0 ? `${skillsValidated}` : '—'}
+          valueSub={skillsTotal > 0 ? `/ ${skillsTotal}` : undefined}
           delta={
-            skills_total === 0
+            skillsTotal === 0
               ? 'Not yet tracked'
-              : skills_validated >= skills_total
+              : skillsValidated >= skillsTotal
                 ? 'All required skills validated'
-                : `${skills_total - skills_validated} remaining`
+                : `${skillsTotal - skillsValidated} remaining`
           }
-          deltaColor={skills_total > 0 && skills_validated >= skills_total ? COLOR.green : COLOR.muted35}
+          deltaColor={skillsTotal > 0 && skillsValidated >= skillsTotal ? COLOR.green : COLOR.muted35}
           progress={skillsPct}
           progressColor={COLOR.accent}
         />
         <KpiCard
           label="Skill gaps to close"
-          value={`${blocking_count}`}
-          valueColor={blocking_count > 0 ? COLOR.amber : COLOR.fg}
-          delta={blocking_count > 0 ? `${blocking_count} skill${blocking_count === 1 ? '' : 's'} need work` : 'Nothing blocking you'}
-          deltaColor={blocking_count > 0 ? COLOR.amber : COLOR.green}
-          progress={blocking_count > 0 ? 100 : 0}
+          value={`${blockingCount}`}
+          valueColor={blockingCount > 0 ? COLOR.amber : COLOR.fg}
+          delta={blockingCount > 0 ? `${blockingCount} skill${blockingCount === 1 ? '' : 's'} need work` : 'Nothing blocking you'}
+          deltaColor={blockingCount > 0 ? COLOR.amber : COLOR.green}
+          progress={blockingCount > 0 ? 100 : 0}
           progressColor="rgba(245,158,11,0.4)"
         />
         <KpiCard
           label="Assigned — due soon"
-          value={`${assignments_due_soon}`}
-          valueSub={assignments_due_soon === 1 ? 'assignment' : 'assignments'}
-          delta={assignments_due_soon > 0 ? 'Due within your reminder window' : 'Nothing due soon'}
-          deltaColor={assignments_due_soon > 0 ? COLOR.amber : COLOR.muted35}
-          progress={assignments_due_soon > 0 ? 100 : 0}
+          value={`${assignmentsDueSoon}`}
+          valueSub={assignmentsDueSoon === 1 ? 'assignment' : 'assignments'}
+          delta={assignmentsDueSoon > 0 ? 'Due within your reminder window' : 'Nothing due soon'}
+          deltaColor={assignmentsDueSoon > 0 ? COLOR.amber : COLOR.muted35}
+          progress={assignmentsDueSoon > 0 ? 100 : 0}
           progressColor={COLOR.amber}
         />
         <KpiCard
           label="Certifications"
-          value={`${certifications_active}`}
+          value={`${certificationsActive}`}
           valueSub="active"
-          delta={certifications_active > 0 ? `${certifications_active} active` : 'Not yet tracked'}
+          delta={certificationsActive > 0 ? `${certificationsActive} active` : 'Not yet tracked'}
           deltaColor={COLOR.muted35}
-          progress={certifications_active > 0 ? 100 : 0}
+          progress={certificationsActive > 0 ? 100 : 0}
           progressColor="rgba(255,255,255,0.15)"
         />
       </div>
 
       {/* Section 4 — two column panels */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <BlockingGrowthPanel items={data.promotion_readiness.blocking_items} />
-        <NextActionsPanel actions={data.next_actions} />
+        <BlockingGrowthPanel items={blockerItems} />
+        <NextActionsPanel items={nextActionItems} />
       </div>
 
       {/* Section 5 — competency progress */}
-      <CompetencyPanel targetRole={data.promotion_readiness.target_role} items={data.competency_progress} />
+      <CompetencyPanel
+        targetRole={gapAnalysisQuery.data?.target_role ?? null}
+        items={competencyItems}
+        usingMock={usingMockCompetency}
+      />
     </div>
   )
 }

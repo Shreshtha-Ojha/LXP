@@ -18,7 +18,7 @@ import { FilterPills, type ContentTypeFilter, type ProficiencyFilter } from '@/c
 import { CATALOGUE_COLORS as COLOR } from '@/components/catalogue/colors'
 import { PATH_COLORS } from '@/components/path/colors'
 import { getCompletedCount, getEffectiveNodes, SYSTEM_DESIGN_PATH, type LearningPath } from '@/components/path/types'
-import { assetToCourse, assignmentToCourse, progressToCourse } from '@/components/catalogue/mappers'
+import { assetToCourse, assignmentToCourse, progressToCourse, recommendationToCourse } from '@/components/catalogue/mappers'
 import type {
   ApiAssignment,
   ApiLearningAsset,
@@ -28,6 +28,7 @@ import type {
   CatalogSearchResponse,
   CatalogueCourse,
   ProgressResponse,
+  RecommendationsResponse,
 } from '@/components/catalogue/types'
 
 // TODO: page-level "Upload content" visibility should come from the
@@ -61,6 +62,11 @@ async function fetchAssignments(): Promise<AssignmentsResponse> {
 
 async function fetchProgress(): Promise<ProgressResponse> {
   const { data } = await api.get<ProgressResponse>('/progress/me')
+  return data
+}
+
+async function fetchRecommendations(): Promise<RecommendationsResponse> {
+  const { data } = await api.get<RecommendationsResponse>('/skills/recommendations')
   return data
 }
 
@@ -137,6 +143,19 @@ function LearningPathCard({ path }: { path: LearningPath }) {
   )
 }
 
+function RecommendationsHeader() {
+  return (
+    <div className="mb-3 flex items-baseline gap-2">
+      <h2 className="text-[13px] font-medium" style={{ color: COLOR.pageTitle }}>
+        Recommended for you
+      </h2>
+      <span className="text-[11px]" style={{ color: COLOR.muted30 }}>
+        Based on your skill gaps
+      </span>
+    </div>
+  )
+}
+
 function SkeletonGrid() {
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -172,6 +191,11 @@ function LearnPageContent() {
   const browseQuery = useQuery({ queryKey: ['catalog-browse'], queryFn: fetchBrowse })
   const assignmentsQuery = useQuery({ queryKey: ['assignments-me'], queryFn: fetchAssignments })
   const progressQuery = useQuery({ queryKey: ['progress-me'], queryFn: fetchProgress })
+  const recommendationsQuery = useQuery({
+    queryKey: ['recommendations'],
+    queryFn: fetchRecommendations,
+    staleTime: 5 * 60 * 1000,
+  })
 
   // Unfiltered total powers the "X courses across Y skill domains" subtitle,
   // kept separate from the filtered search below so applying a filter
@@ -242,13 +266,26 @@ function LearnPageContent() {
     return courses
   }, [assignmentsQuery.data, assetIndex, progressByAssetId])
 
-  const recommended = useMemo(
+  const recommendedCourses = useMemo(
     () =>
-      (browseQuery.data?.recommended ?? []).map((asset) =>
-        assetToCourse(asset, { progress: progressByAssetId.get(asset.id), assignment: assignmentByAssetId.get(asset.id) })
+      (recommendationsQuery.data ?? []).map((item) =>
+        recommendationToCourse(item, {
+          progress: progressByAssetId.get(item.asset_id),
+          assignment: assignmentByAssetId.get(item.asset_id),
+        })
       ),
-    [browseQuery.data, progressByAssetId, assignmentByAssetId]
+    [recommendationsQuery.data, progressByAssetId, assignmentByAssetId]
   )
+
+  // Maps asset_id -> "Closes gap in X" so each recommended CourseCard can
+  // show why it was recommended instead of its content-type badge.
+  const recommendationReasonByAssetId = useMemo(() => {
+    const map = new Map<string, string>()
+    recommendationsQuery.data?.forEach((item) => map.set(item.asset_id, item.reason))
+    return map
+  }, [recommendationsQuery.data])
+
+  const isRecommended = (assetId: string) => recommendationsQuery.data?.some((item) => item.asset_id === assetId) ?? false
 
   const recentlyAdded = useMemo(
     () =>
@@ -350,7 +387,7 @@ function LearnPageContent() {
             <>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {searchResults.map((course) => (
-                  <CourseCard key={course.id} course={course} />
+                  <CourseCard key={course.id} course={course} recommended={isRecommended(course.id)} />
                 ))}
               </div>
 
@@ -393,7 +430,31 @@ function LearnPageContent() {
             }
           />
 
-          <CourseRow title="Recommended for you" courses={recommended} isLoading={browseQuery.isLoading} />
+          {recommendationsQuery.isLoading ? (
+            <section>
+              <RecommendationsHeader />
+              <div className="flex gap-3 overflow-x-auto pb-1">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <div key={index} className="w-[300px] shrink-0">
+                    <CourseCardSkeleton />
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : recommendedCourses.length > 0 ? (
+            <section>
+              <RecommendationsHeader />
+              <div className="flex gap-3 overflow-x-auto pb-1">
+                {recommendedCourses.map((course) => (
+                  <div key={course.id} className="w-[300px] shrink-0">
+                    <CourseCard course={course} reasonLabel={recommendationReasonByAssetId.get(course.id)} />
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : (
+            <CourseRow title="Popular this month" courses={recentlyAdded} isLoading={browseQuery.isLoading} />
+          )}
 
           <section>
             <h2 className="mb-3 text-[15px] font-medium text-fg">Learning paths</h2>

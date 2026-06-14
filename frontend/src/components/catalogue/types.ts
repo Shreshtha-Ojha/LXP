@@ -113,3 +113,15 @@ export interface ApiProgressItem {
 export interface ProgressResponse {
   progress: ApiProgressItem[]
 }
+
+/** One entry of GET /skills/recommendations — a bare array, not wrapped in an object. */
+export interface RecommendationItem {
+  asset_id: string
+  title: string
+  content_type: string
+  duration_minutes: number | null
+  skills: string[]
+  reason: string
+}
+
+export type RecommendationsResponse = RecommendationItem[]
