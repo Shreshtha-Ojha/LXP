@@ -23,8 +23,16 @@ const NAV_ITEMS = [
   { label: 'Team', href: '/team' },
 ] as const
 
+// Acronym roles don't survive `replace + CSS capitalize` ("ld admin" ->
+// "Ld Admin", not "L&D Admin") — every other role does, so only these two
+// need an explicit override.
+const ROLE_LABEL_OVERRIDES: Record<string, string> = {
+  ld_admin: 'L&D Admin',
+  hr_admin: 'HR Admin',
+}
+
 function formatRoleName(role: string): string {
-  return role.replace(/_/g, ' ')
+  return ROLE_LABEL_OVERRIDES[role] ?? role.replace(/_/g, ' ')
 }
 
 function getInitials(user: AuthUser | null): string {
@@ -133,6 +141,14 @@ export function Navbar() {
   const availableRoles = useAuthStore((state) => state.availableRoles)
   const switchRole = useAuthStore((state) => state.switchRole)
   const coinTotal = usePathProgressStore((state) => state.coinTotal)
+
+  // The store skips automatic hydration (see pathProgressStore.ts) so the
+  // server-rendered and first-client-render coin totals match exactly.
+  // Rehydrating here, on every authenticated page's mount, loads the real
+  // balance from localStorage right after.
+  useEffect(() => {
+    void usePathProgressStore.persist.rehydrate()
+  }, [])
 
   const visibleNavItems = NAV_ITEMS.filter(
     (item) => item.label !== 'Team' || activeRole !== ASSOCIATE_ROLE

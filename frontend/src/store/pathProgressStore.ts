@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { createJSONStorage, persist } from 'zustand/middleware'
 
 // TODO: coin balance and path completion should come from a rewards/progress
 // API once the gamification backend lands (CLAUDE.md Rule 1 — no business
@@ -20,19 +21,35 @@ interface PathProgressState {
   clearJustCompleted: () => void
 }
 
-export const usePathProgressStore = create<PathProgressState>((set) => ({
-  coinTotal: DEMO_STARTING_COINS,
-  completedNodeIds: [],
-  justCompletedNodeId: null,
+export const usePathProgressStore = create<PathProgressState>()(
+  persist(
+    (set) => ({
+      coinTotal: DEMO_STARTING_COINS,
+      completedNodeIds: [],
+      justCompletedNodeId: null,
 
-  completeNode: (nodeId, coins) =>
-    set((state) => ({
-      coinTotal: state.coinTotal + coins,
-      completedNodeIds: state.completedNodeIds.includes(nodeId)
-        ? state.completedNodeIds
-        : [...state.completedNodeIds, nodeId],
-      justCompletedNodeId: nodeId,
-    })),
+      completeNode: (nodeId, coins) =>
+        set((state) => ({
+          coinTotal: state.coinTotal + coins,
+          completedNodeIds: state.completedNodeIds.includes(nodeId)
+            ? state.completedNodeIds
+            : [...state.completedNodeIds, nodeId],
+          justCompletedNodeId: nodeId,
+        })),
 
-  clearJustCompleted: () => set({ justCompletedNodeId: null }),
-}))
+      clearJustCompleted: () => set({ justCompletedNodeId: null }),
+    }),
+    {
+      name: 'lxp_path_progress',
+      storage: createJSONStorage(() => localStorage),
+      // Initial state must match on server and client to avoid a hydration
+      // mismatch — Navbar calls `.persist.rehydrate()` on mount to load the
+      // real balance from localStorage once the client takes over.
+      skipHydration: true,
+      partialize: (state) => ({
+        coinTotal: state.coinTotal,
+        completedNodeIds: state.completedNodeIds,
+      }),
+    }
+  )
+)

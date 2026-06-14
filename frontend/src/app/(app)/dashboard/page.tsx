@@ -11,7 +11,7 @@ import { useAuthStore } from '@/store/authStore'
 import { usePathProgressStore } from '@/store/pathProgressStore'
 import { Spinner } from '@/components/ui/Spinner'
 import type { ApiAssignment, AssignmentsResponse, RecommendationItem, RecommendationsResponse } from '@/components/catalogue/types'
-import type { GapAnalysisResponse, MetRequirement, SkillGap } from '@/components/growth/types'
+import type { GapAnalysisResponse, MetRequirement, SkillGap, SkillInventoryResponse } from '@/components/growth/types'
 import { mockCompetencyProgress, mockKpis, mockNextActions } from '@/components/dashboard/mockData'
 import type { BlockerDisplay, CompetencyProgressItem, DashboardResponse, NextActionDisplay } from '@/components/dashboard/types'
 
@@ -66,6 +66,14 @@ async function fetchAssignments(): Promise<AssignmentsResponse> {
 
 async function fetchGapAnalysis(): Promise<GapAnalysisResponse> {
   const { data } = await api.get<GapAnalysisResponse>('/skills/gap-analysis')
+  return data
+}
+
+// Shares the ['skills-inventory'] cache entry with the My Growth page —
+// kpis.skills_validated / skills_total are permanent Release-2 placeholders
+// (always 0) on /dashboard/me, so the real counts come from here instead.
+async function fetchSkillInventory(): Promise<SkillInventoryResponse> {
+  const { data } = await api.get<SkillInventoryResponse>('/skills/inventory')
   return data
 }
 
@@ -318,9 +326,8 @@ function BlockingGrowthPanel({ items }: { items: BlockerDisplay[] }) {
   )
 }
 
-function NextActionsPanel({ items }: { items: NextActionDisplay[] }) {
+function NextActionsPanel({ items, resolved }: { items: NextActionDisplay[]; resolved: boolean }) {
   const router = useRouter()
-  const visible = items.slice(0, 3)
 
   function navigateTo(href: string) {
     router.push(href)
@@ -332,6 +339,24 @@ function NextActionsPanel({ items }: { items: NextActionDisplay[] }) {
       navigateTo(href)
     }
   }
+
+  if (resolved && items.length === 0) {
+    return (
+      <Panel>
+        <PanelHeader title="What to do next" />
+        <div className="flex flex-col items-center gap-2 px-4 py-6 text-center">
+          <span className="text-[13px]" style={{ color: COLOR.muted35 }}>
+            Nothing assigned right now — explore the catalogue
+          </span>
+          <Link href="/learn" className="text-xs" style={{ color: COLOR.accent }}>
+            Browse courses →
+          </Link>
+        </div>
+      </Panel>
+    )
+  }
+
+  const visible = (resolved ? items : mockNextActions).slice(0, 3)
 
   return (
     <Panel>
@@ -370,12 +395,33 @@ function NextActionsPanel({ items }: { items: NextActionDisplay[] }) {
 function CompetencyPanel({
   targetRole,
   items,
-  usingMock,
+  resolved,
 }: {
   targetRole: string | null
   items: CompetencyProgressItem[]
-  usingMock: boolean
+  resolved: boolean
 }) {
+  if (resolved && items.length === 0) {
+    return (
+      <div className="flex flex-col gap-2">
+        <Panel>
+          <PanelHeader title="Skills required" action={{ label: 'View full profile', href: '/growth' }} />
+          <div className="flex flex-col items-center gap-2 px-4 py-6 text-center">
+            <span className="text-[13px]" style={{ color: COLOR.muted35 }}>
+              Declare your skills in My Growth to see your competency progress here
+            </span>
+            <Link href="/growth" className="text-xs" style={{ color: COLOR.accent }}>
+              Go to My Growth →
+            </Link>
+          </div>
+        </Panel>
+      </div>
+    )
+  }
+
+  const usingMock = !resolved
+  const visible = usingMock ? mockCompetencyProgress : items
+
   return (
     <div className="flex flex-col gap-2">
       <Panel>
@@ -383,11 +429,11 @@ function CompetencyPanel({
           title={targetRole ? `Skills required for ${targetRole}` : 'Skills required'}
           action={{ label: 'View full profile', href: '/growth' }}
         />
-        {items.map((item, index) => (
+        {visible.map((item, index) => (
           <div
             key={item.name}
             className="flex items-center gap-4 px-4 py-3"
-            style={index < items.length - 1 ? { borderBottom: `0.5px solid ${COLOR.hairline}` } : undefined}
+            style={index < visible.length - 1 ? { borderBottom: `0.5px solid ${COLOR.hairline}` } : undefined}
           >
             <span className="w-[140px] shrink-0 truncate text-sm text-fg">{item.name}</span>
             <div className="h-1 flex-1 overflow-hidden rounded-full" style={{ backgroundColor: COLOR.trackMuted }}>
@@ -451,15 +497,23 @@ export default function DashboardPage() {
     enabled: !belongsOnTeamDashboard,
     staleTime: 5 * 60 * 1000,
   })
+  const skillInventoryQuery = useQuery({
+    queryKey: ['skills-inventory'],
+    queryFn: fetchSkillInventory,
+    enabled: !belongsOnTeamDashboard,
+    staleTime: 5 * 60 * 1000,
+  })
 
   useLogQueryError('dashboard-me', dashboardQuery.error)
   useLogQueryError('recommendations', recommendationsQuery.error)
   useLogQueryError('assignments-me', assignmentsQuery.error)
   useLogQueryError('gap-analysis', gapAnalysisQuery.error)
+  useLogQueryError('skills-inventory', skillInventoryQuery.error)
 
   // "What to do next" — most overdue assignment, then gap-based
   // recommendations, then a second recommendation or the next assignment.
-  // Falls back to mock data only when nothing real is available at all.
+  // May resolve empty; NextActionsPanel shows mock placeholders until both
+  // source queries have settled, then a real empty-state if still empty.
   const nextActionItems = useMemo<NextActionDisplay[]>(() => {
     const assignments = assignmentsQuery.data?.assignments ?? []
     const recommendations = recommendationsQuery.data ?? []
@@ -492,8 +546,17 @@ export default function DashboardPage() {
       if (nextAssignment) items.push(assignmentToNextAction(nextAssignment))
     }
 
-    return items.length > 0 ? items : mockNextActions
+    return items
   }, [assignmentsQuery.data, recommendationsQuery.data])
+
+  // Once both queries have settled (succeeded or failed) we can trust an
+  // empty `nextActionItems` as a real "nothing assigned" state rather than
+  // "still loading" — until then, the panel shows mock placeholders.
+  const nextActionsResolved =
+    !assignmentsQuery.isLoading &&
+    !assignmentsQuery.isError &&
+    !recommendationsQuery.isLoading &&
+    !recommendationsQuery.isError
 
   // "What's blocking my growth" — overdue assignments (red) first, then
   // gap-analysis skill gaps (amber). An empty combined list is a genuinely
@@ -521,19 +584,16 @@ export default function DashboardPage() {
     return [...overdueBlockers, ...gapBlockers]
   }, [assignmentsQuery.data, gapAnalysisQuery.data])
 
-  // "Skills required for X" — gap-analysis gaps + met requirements, falling
-  // back to mock data when there's no target role / requirements configured.
-  const { competencyItems, usingMockCompetency } = useMemo(() => {
+  // "Skills required for X" — gap-analysis gaps + met requirements. An empty
+  // result is only a real "declare your skills" state once the query has
+  // settled; while loading or on error the panel shows mock placeholders.
+  const competencyItems = useMemo<CompetencyProgressItem[]>(() => {
     const gaps = gapAnalysisQuery.data?.gaps ?? []
     const met = gapAnalysisQuery.data?.met ?? []
-    if (gaps.length === 0 && met.length === 0) {
-      return { competencyItems: mockCompetencyProgress, usingMockCompetency: true }
-    }
-    return {
-      competencyItems: [...gaps.map(gapToCompetencyItem), ...met.map(metToCompetencyItem)],
-      usingMockCompetency: false,
-    }
+    return [...gaps.map(gapToCompetencyItem), ...met.map(metToCompetencyItem)]
   }, [gapAnalysisQuery.data])
+
+  const competencyResolved = !gapAnalysisQuery.isLoading && !gapAnalysisQuery.isError
 
   if (belongsOnTeamDashboard) {
     return (
@@ -546,8 +606,11 @@ export default function DashboardPage() {
   // KPI cards never block on the dashboard query — show mock values
   // immediately and swap in real values as each query resolves.
   const kpis = dashboardQuery.data?.kpis
-  const skillsValidated = kpis?.skills_validated ?? mockKpis.skills_validated
-  const skillsTotal = kpis?.skills_total ?? mockKpis.skills_total
+  // kpis.skills_validated / skills_total are permanent 0 placeholders on
+  // /dashboard/me (see fetchSkillInventory comment) — sourced from
+  // /skills/inventory's summary instead, which is real.
+  const skillsValidated = skillInventoryQuery.data?.summary.validated ?? mockKpis.skills_validated
+  const skillsTotal = skillInventoryQuery.data?.summary.total_skills ?? mockKpis.skills_total
   const blockingCount = gapAnalysisQuery.data?.gaps.length ?? mockKpis.blocking_count
   const assignmentsDueSoon = kpis?.assignments_due_soon ?? mockKpis.assignments_due_soon
   const certificationsActive = kpis?.certifications_active ?? mockKpis.certifications_active
@@ -572,13 +635,15 @@ export default function DashboardPage() {
           </span>
         </div>
         <div className="flex items-center gap-3">
-          <div
-            className="flex items-center gap-1.5 rounded-[20px] px-3 py-1 text-[13px] font-medium"
-            style={{ color: COLOR.amber, backgroundColor: 'rgba(245,158,11,0.1)', border: '0.5px solid rgba(245,158,11,0.2)' }}
-          >
-            <Flame className="h-3.5 w-3.5" />
-            {streakDays}-day streak
-          </div>
+          {streakDays > 0 && (
+            <div
+              className="flex items-center gap-1.5 rounded-[20px] px-3 py-1 text-[13px] font-medium"
+              style={{ color: COLOR.amber, backgroundColor: 'rgba(245,158,11,0.1)', border: '0.5px solid rgba(245,158,11,0.2)' }}
+            >
+              <Flame className="h-3.5 w-3.5" />
+              {streakDays}-day streak
+            </div>
+          )}
           <div
             className="flex items-center gap-1.5 rounded-[20px] px-3 py-1 text-[13px] font-medium"
             style={{ color: COLOR.amber, backgroundColor: 'rgba(245,158,11,0.08)', border: '0.5px solid rgba(245,158,11,0.15)' }}
@@ -599,7 +664,7 @@ export default function DashboardPage() {
           valueSub={skillsTotal > 0 ? `/ ${skillsTotal}` : undefined}
           delta={
             skillsTotal === 0
-              ? 'Not yet tracked'
+              ? 'Declare skills to track'
               : skillsValidated >= skillsTotal
                 ? 'All required skills validated'
                 : `${skillsTotal - skillsValidated} remaining`
@@ -640,14 +705,14 @@ export default function DashboardPage() {
       {/* Section 4 — two column panels */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <BlockingGrowthPanel items={blockerItems} />
-        <NextActionsPanel items={nextActionItems} />
+        <NextActionsPanel items={nextActionItems} resolved={nextActionsResolved} />
       </div>
 
       {/* Section 5 — competency progress */}
       <CompetencyPanel
         targetRole={gapAnalysisQuery.data?.target_role ?? null}
         items={competencyItems}
-        usingMock={usingMockCompetency}
+        resolved={competencyResolved}
       />
     </div>
   )
