@@ -1,9 +1,9 @@
 /**
  * Hardcoded demo data for the Learning Path Builder, per the spec — the
  * admin path list (`demoPaths`) and a seeded builder state for the
- * `system-design-101` canvas editor, derived from the learner-facing
- * `SYSTEM_DESIGN_PATH` mock in `components/path/types.ts` so both views of
- * the same path stay in sync.
+ * `00000000-0000-0000-0000-000000000100` canvas editor, derived from the
+ * learner-facing `SYSTEM_DESIGN_PATH` mock in `components/path/types.ts` so
+ * both views of the same path stay in sync.
  */
 import { QUIZ_QUESTIONS, SYSTEM_DESIGN_PATH } from '@/components/path/types'
 import {
@@ -17,7 +17,7 @@ import {
 
 export const demoPaths: AdminPathSummary[] = [
   {
-    id: 'system-design-101',
+    id: '00000000-0000-0000-0000-000000000100',
     title: 'System Design',
     description:
       'From fundamentals to real-world architecture. Covers scalability, data storage, APIs, and hands-on system design challenges.',
@@ -30,7 +30,7 @@ export const demoPaths: AdminPathSummary[] = [
     created_at: '2026-06-01',
   },
   {
-    id: 'docker-kubernetes',
+    id: '00000000-0000-0000-0000-000000000101',
     title: 'Docker & Kubernetes',
     description: 'Container fundamentals through production-grade orchestration. Build, ship, and run applications at scale.',
     status: 'draft',
@@ -42,7 +42,7 @@ export const demoPaths: AdminPathSummary[] = [
     created_at: '2026-06-10',
   },
   {
-    id: 'api-design-mastery',
+    id: '00000000-0000-0000-0000-000000000102',
     title: 'API Design Mastery',
     description: 'REST, GraphQL, gRPC, and beyond. Design APIs that scale, evolve, and delight developers.',
     status: 'in_review',
@@ -136,7 +136,7 @@ function buildSystemDesignState(): PathBuilderState {
 }
 
 const MOCK_PATH_STATES: Record<string, () => PathBuilderState> = {
-  'system-design-101': buildSystemDesignState,
+  '00000000-0000-0000-0000-000000000100': buildSystemDesignState,
 }
 
 /** Returns a fresh seeded builder state for the given path id, or null if there's no mock for it. */

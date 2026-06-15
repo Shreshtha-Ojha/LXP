@@ -41,7 +41,7 @@ export interface QuizQuestion {
 }
 
 export const SYSTEM_DESIGN_PATH: LearningPath = {
-  id: 'system-design-101',
+  id: '00000000-0000-0000-0000-000000000100',
   title: 'System Design',
   subtitle: '9 nodes · ~6 hours · Backend engineering',
   total_coins: 925,
