@@ -4,16 +4,11 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { Clock, Hexagon, MoreVertical } from 'lucide-react'
-import { useAuthStore } from '@/store/authStore'
+import { useCanPublish } from '@/hooks/useCanPublish'
 import { cn } from '@/lib/utils'
 import { SkillChip } from '@/components/ui/SkillChip'
 import { BUILDER_COLORS as COLOR } from './colors'
 import { formatDuration, type AdminPathSummary, type PathStatus } from './types'
-
-// TODO: same placeholder as ASSOCIATE_ROLE in Navbar.tsx — the
-// "who can publish a path" rule should come from the permission engine
-// (CLAUDE.md Rule 1), not a literal role check.
-const LD_ADMIN_ROLE = 'ld_admin'
 
 export const STATUS_BADGE_STYLES: Record<PathStatus, { bg: string; color: string; label: string }> = {
   published: { bg: 'rgba(74,222,128,0.1)', color: '#4ade80', label: 'Published' },
@@ -29,19 +24,31 @@ export interface PathCardProps {
   path: AdminPathSummary
   onDuplicate: (path: AdminPathSummary) => void
   onPublish: (path: AdminPathSummary) => void
+  onSubmitForReview: (path: AdminPathSummary) => void
   onRetire: (path: AdminPathSummary) => void
+  onRestore: (path: AdminPathSummary) => void
 }
 
-export function PathCard({ path, onDuplicate, onPublish, onRetire }: PathCardProps) {
+export function PathCard({ path, onDuplicate, onPublish, onSubmitForReview, onRetire, onRestore }: PathCardProps) {
   const router = useRouter()
-  const activeRole = useAuthStore((state) => state.activeRole)
+  const { canPublish } = useCanPublish()
 
   const badge = STATUS_BADGE_STYLES[path.status]
   const visibleSkills = path.skills.slice(0, 3)
   const extraSkillCount = path.skills.length - visibleSkills.length
 
-  const showPublish = (path.status === 'draft' || path.status === 'in_review') && activeRole === LD_ADMIN_ROLE
-  const showRetire = path.status === 'published'
+  // Per-status, per-role lifecycle action shown in the options menu — see
+  // FIX 1 status badge logic. Exactly one (or none) applies at a time, so a
+  // user is never shown an action they don't have permission to perform.
+  const showPublishAction = path.status === 'draft' && canPublish
+  const showSubmitForReview = path.status === 'draft' && !canPublish
+  const showApproveAndPublish = path.status === 'in_review' && canPublish
+  const showAwaitingReview = path.status === 'in_review' && !canPublish
+  const showRetire = path.status === 'published' && canPublish
+  const showRestore = path.status === 'retired' && canPublish
+
+  const hasLifecycleAction =
+    showPublishAction || showSubmitForReview || showApproveAndPublish || showAwaitingReview || showRetire || showRestore
 
   const editHref = `/admin/paths/${path.id}/edit`
 
@@ -99,17 +106,47 @@ export function PathCard({ path, onDuplicate, onPublish, onRetire }: PathCardPro
                 Duplicate
               </DropdownMenu.Item>
 
-              {(showPublish || showRetire) && (
+              {hasLifecycleAction && (
                 <DropdownMenu.Separator className="my-1 h-px" style={{ backgroundColor: COLOR.muted07 }} />
               )}
 
-              {showPublish && (
+              {showPublishAction && (
                 <DropdownMenu.Item
                   className={MENU_ITEM_CLASS}
                   style={{ color: COLOR.green }}
                   onSelect={() => onPublish(path)}
                 >
                   Publish
+                </DropdownMenu.Item>
+              )}
+
+              {showSubmitForReview && (
+                <DropdownMenu.Item
+                  className={MENU_ITEM_CLASS}
+                  style={{ color: COLOR.muted45 }}
+                  onSelect={() => onSubmitForReview(path)}
+                >
+                  Submit for review
+                </DropdownMenu.Item>
+              )}
+
+              {showApproveAndPublish && (
+                <DropdownMenu.Item
+                  className={MENU_ITEM_CLASS}
+                  style={{ color: COLOR.green }}
+                  onSelect={() => onPublish(path)}
+                >
+                  Approve & publish
+                </DropdownMenu.Item>
+              )}
+
+              {showAwaitingReview && (
+                <DropdownMenu.Item
+                  className={cn(MENU_ITEM_CLASS, 'data-[disabled]:pointer-events-none')}
+                  style={{ color: COLOR.muted30 }}
+                  disabled
+                >
+                  Awaiting review
                 </DropdownMenu.Item>
               )}
 
@@ -120,6 +157,16 @@ export function PathCard({ path, onDuplicate, onPublish, onRetire }: PathCardPro
                   onSelect={() => onRetire(path)}
                 >
                   Retire
+                </DropdownMenu.Item>
+              )}
+
+              {showRestore && (
+                <DropdownMenu.Item
+                  className={MENU_ITEM_CLASS}
+                  style={{ color: COLOR.muted45 }}
+                  onSelect={() => onRestore(path)}
+                >
+                  Restore
                 </DropdownMenu.Item>
               )}
             </DropdownMenu.Content>

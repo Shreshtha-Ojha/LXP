@@ -5,9 +5,11 @@ import { useRouter } from 'next/navigation'
 import { Hexagon, Plus, Search } from 'lucide-react'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
+import { useCanPublish } from '@/hooks/useCanPublish'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Spinner } from '@/components/ui/Spinner'
+import { Toast, type ToastState } from '@/components/ui/Toast'
 import { BUILDER_COLORS as COLOR } from '@/components/path-builder/colors'
 import { PathCard } from '@/components/path-builder/PathCard'
 import { demoPaths } from '@/components/path-builder/mockData'
@@ -49,6 +51,7 @@ export default function AdminPathsPage() {
   const router = useRouter()
   const activeRole = useAuthStore((state) => state.activeRole)
   const user = useAuthStore((state) => state.user)
+  const { canPublish } = useCanPublish()
   const isExcluded = EXCLUDED_ROLES.includes(activeRole ?? '')
 
   useEffect(() => {
@@ -58,6 +61,7 @@ export default function AdminPathsPage() {
   const [paths, setPaths] = useState<AdminPathSummary[]>(demoPaths)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [search, setSearch] = useState('')
+  const [toast, setToast] = useState<ToastState | null>(null)
 
   const filteredPaths = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -69,6 +73,8 @@ export default function AdminPathsPage() {
   }, [paths, statusFilter, search])
 
   const publishedCount = paths.filter((path) => path.status === 'published').length
+  const inReviewCount = paths.filter((path) => path.status === 'in_review').length
+  const showReviewQueue = canPublish && inReviewCount > 0
 
   if (isExcluded) {
     return (
@@ -95,13 +101,32 @@ export default function AdminPathsPage() {
     void api.post(`/learning-paths/${path.id}/duplicate`).catch(() => {})
   }
 
-  function handlePublish(path: AdminPathSummary) {
-    setPaths((prev) => prev.map((p) => (p.id === path.id ? { ...p, status: 'published' as const } : p)))
-    void api.post(`/learning-paths/${path.id}/publish`).catch(() => {})
+  async function handlePublish(path: AdminPathSummary) {
+    try {
+      await api.post(`/learning-paths/${path.id}/publish`)
+      setPaths((prev) => prev.map((p) => (p.id === path.id ? { ...p, status: 'published' as const } : p)))
+      setToast({ type: 'success', message: 'Path published — learners can now find it' })
+    } catch {
+      setToast({ type: 'error', message: 'Failed to publish — please try again' })
+    }
+  }
+
+  async function handleSubmitForReview(path: AdminPathSummary) {
+    try {
+      await api.post(`/learning-paths/${path.id}/submit-review`)
+      setPaths((prev) => prev.map((p) => (p.id === path.id ? { ...p, status: 'in_review' as const } : p)))
+      setToast({ type: 'success', message: 'Submitted for review — L&D Admin will be notified' })
+    } catch {
+      setToast({ type: 'error', message: 'Failed to submit for review — please try again' })
+    }
   }
 
   function handleRetire(path: AdminPathSummary) {
     setPaths((prev) => prev.map((p) => (p.id === path.id ? { ...p, status: 'retired' as const } : p)))
+  }
+
+  function handleRestore(path: AdminPathSummary) {
+    setPaths((prev) => prev.map((p) => (p.id === path.id ? { ...p, status: 'draft' as const } : p)))
   }
 
   return (
@@ -121,6 +146,31 @@ export default function AdminPathsPage() {
           Create path
         </Button>
       </div>
+
+      {showReviewQueue && (
+        <div
+          className="flex items-center gap-2.5 rounded-[9px] px-3.5 py-2.5"
+          style={{ backgroundColor: 'rgba(245,158,11,0.06)', border: '0.5px solid rgba(245,158,11,0.2)' }}
+        >
+          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: COLOR.amber }} />
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px]" style={{ color: '#e2e0f9' }}>
+              {inReviewCount} path{inReviewCount === 1 ? '' : 's'} waiting for your review
+            </p>
+            <p className="text-[12px]" style={{ color: COLOR.muted35 }}>
+              Submitted by trainers and competency leaders
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setStatusFilter('in_review')}
+            className="shrink-0 text-[13px] font-medium"
+            style={{ color: COLOR.amber }}
+          >
+            Review now →
+          </button>
+        </div>
+      )}
 
       <div className="flex items-center gap-2 overflow-x-auto">
         {STATUS_FILTERS.map((filter) => (
@@ -154,10 +204,20 @@ export default function AdminPathsPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filteredPaths.map((path) => (
-            <PathCard key={path.id} path={path} onDuplicate={handleDuplicate} onPublish={handlePublish} onRetire={handleRetire} />
+            <PathCard
+              key={path.id}
+              path={path}
+              onDuplicate={handleDuplicate}
+              onPublish={handlePublish}
+              onSubmitForReview={handleSubmitForReview}
+              onRetire={handleRetire}
+              onRestore={handleRestore}
+            />
           ))}
         </div>
       )}
+
+      <Toast toast={toast} onDismiss={() => setToast(null)} />
     </div>
   )
 }

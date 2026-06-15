@@ -1,7 +1,7 @@
 'use client'
 
-import { AlertTriangle, Check, X } from 'lucide-react'
-import { useAuthStore } from '@/store/authStore'
+import { AlertTriangle, Check, Globe, Send, X } from 'lucide-react'
+import { useCanPublish } from '@/hooks/useCanPublish'
 import { HEXAGON_CLIP_PATH } from '@/components/path/PathNode'
 import { BUILDER_COLORS as COLOR } from './colors'
 import { displayTitle, getNodeHexagonAppearance } from './NodeList'
@@ -13,11 +13,6 @@ import {
   totalDurationMinutes,
   type PathBuilderState,
 } from './types'
-
-// TODO: same placeholder as ASSOCIATE_ROLE in Navbar.tsx / LD_ADMIN_ROLE in
-// PathCard.tsx — "who can publish directly vs. submit for review" should
-// come from the permission engine (CLAUDE.md Rule 1), not a literal role check.
-const LD_ADMIN_ROLE = 'ld_admin'
 
 interface SummaryRowProps {
   label: string
@@ -45,14 +40,13 @@ export interface Step3ReviewProps {
 }
 
 export function Step3Review({ state, onPublish, onSubmitForReview, onSaveDraft }: Step3ReviewProps) {
-  const activeRole = useAuthStore((s) => s.activeRole)
+  const { canPublish } = useCanPublish()
   const checks = getReviewChecks(state)
   const requiredChecksMet = checks.filter((check) => !check.isWarning).every((check) => check.met)
 
   const duration = totalDurationMinutes(state.nodes) || state.durationHours * 60 + state.durationMinutes
   const coins = totalCoins(state.nodes)
   const pathTypeLabel = PATH_TYPES.find((type) => type.value === state.pathType)?.label ?? 'Not set'
-  const canPublishDirectly = activeRole === LD_ADMIN_ROLE
 
   return (
     <div className="mx-auto flex max-w-[640px] flex-col gap-6">
@@ -121,41 +115,63 @@ export function Step3Review({ state, onPublish, onSubmitForReview, onSaveDraft }
         </div>
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-        <button
-          type="button"
-          onClick={onSaveDraft}
-          className="rounded-md px-4 py-2.5 text-sm font-medium transition-colors"
-          style={{ color: COLOR.muted45, backgroundColor: COLOR.muted04, border: `0.5px solid ${COLOR.muted10}` }}
-        >
-          Save as draft
-        </button>
+      <div className="flex flex-col gap-3">
+        {!canPublish && (
+          <div
+            className="mb-3"
+            style={{
+              backgroundColor: 'rgba(124,106,247,0.06)',
+              borderLeft: '3px solid rgba(124,106,247,0.3)',
+              borderRadius: '6px',
+              padding: '10px 12px',
+            }}
+          >
+            <p className="text-[13px]" style={{ color: 'rgba(196,187,251,0.7)' }}>
+              💡 Only L&D Admins can publish paths directly. Your path will be reviewed before going live.
+            </p>
+          </div>
+        )}
 
-        {canPublishDirectly ? (
+        {canPublish ? (
           <button
             type="button"
             onClick={onPublish}
             disabled={!requiredChecksMet}
-            className="rounded-md px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
             style={{ backgroundColor: COLOR.accent, color: '#ffffff' }}
           >
-            Publish path
+            <Globe className="h-4 w-4" />
+            Publish now
           </button>
         ) : (
           <button
             type="button"
             onClick={onSubmitForReview}
             disabled={!requiredChecksMet}
-            className="rounded-md px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
             style={{ backgroundColor: COLOR.accent, color: '#ffffff' }}
           >
+            <Send className="h-4 w-4" />
             Submit for review
           </button>
         )}
+
+        <p className="text-center text-[11px]" style={{ color: 'rgba(255,255,255,0.3)' }}>
+          {canPublish ? 'Learners can find this path immediately' : 'An L&D admin will review and publish your path'}
+        </p>
+
+        <button
+          type="button"
+          onClick={onSaveDraft}
+          className="w-full rounded-md px-4 py-2.5 text-sm font-medium transition-colors"
+          style={{ color: COLOR.muted45, backgroundColor: COLOR.muted04, border: `0.5px solid ${COLOR.muted10}` }}
+        >
+          Save as draft
+        </button>
       </div>
 
       {!requiredChecksMet && (
-        <p className="text-right text-[11px]" style={{ color: COLOR.muted35 }}>
+        <p className="text-center text-[11px]" style={{ color: COLOR.muted35 }}>
           Complete the required items above before publishing
         </p>
       )}

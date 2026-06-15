@@ -33,6 +33,7 @@
      and the "+N coins" float-and-fade on node completion. */
   --animate-pulse-ring: pulse-ring 2s ease-out infinite;
   --animate-coin-float: coin-float 1.5s ease-out forwards;
+  --animate-toast-slide-up: toast-slide-up 0.2s ease;
 }
 
 @keyframes pulse-ring {
@@ -54,6 +55,17 @@
   100% {
     transform: translateY(-40px);
     opacity: 0;
+  }
+}
+
+@keyframes toast-slide-up {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
   }
 }
 

@@ -7,6 +7,7 @@ import { api, getErrorMessage } from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
 import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
+import { Toast, type ToastState } from '@/components/ui/Toast'
 import { BUILDER_COLORS as COLOR } from '@/components/path-builder/colors'
 import { NodeList } from '@/components/path-builder/NodeList'
 import { NodeEditorPanel } from '@/components/path-builder/NodeEditorPanel'
@@ -42,6 +43,7 @@ export default function NewPathPage() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [toast, setToast] = useState<ToastState | null>(null)
 
   useEffect(() => {
     saveWizardDraft(state)
@@ -93,6 +95,11 @@ export default function NewPathPage() {
     return res.data
   }
 
+  /** Brief pause so the success toast is visible before the redirect unmounts this page. */
+  function redirectToPaths() {
+    setTimeout(() => router.push('/admin/paths'), 800)
+  }
+
   async function handleSaveDraft() {
     if (isSaving) return
     setIsSaving(true)
@@ -100,7 +107,8 @@ export default function NewPathPage() {
     try {
       await createPath()
       clearWizardDraft()
-      router.push('/admin/paths')
+      setToast({ type: 'info', message: 'Draft saved' })
+      redirectToPaths()
     } catch (err) {
       setError(getErrorMessage(err))
       setIsSaving(false)
@@ -115,7 +123,8 @@ export default function NewPathPage() {
       const created = await createPath()
       await api.post(`/learning-paths/${created.id}/submit-review`)
       clearWizardDraft()
-      router.push('/admin/paths')
+      setToast({ type: 'success', message: 'Submitted for review — L&D Admin will be notified' })
+      redirectToPaths()
     } catch (err) {
       setError(getErrorMessage(err))
       setIsSaving(false)
@@ -130,9 +139,11 @@ export default function NewPathPage() {
       const created = await createPath()
       await api.post(`/learning-paths/${created.id}/publish`)
       clearWizardDraft()
-      router.push('/admin/paths')
+      setToast({ type: 'success', message: 'Path published — learners can now find it' })
+      redirectToPaths()
     } catch (err) {
       setError(getErrorMessage(err))
+      setToast({ type: 'error', message: 'Failed to publish — please try again' })
       setIsSaving(false)
     }
   }
@@ -222,6 +233,8 @@ export default function NewPathPage() {
           </div>
         </div>
       )}
+
+      <Toast toast={toast} onDismiss={() => setToast(null)} />
     </div>
   )
 }

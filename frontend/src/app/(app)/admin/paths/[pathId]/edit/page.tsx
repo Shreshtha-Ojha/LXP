@@ -6,9 +6,11 @@ import { useParams, useRouter } from 'next/navigation'
 import { AlertCircle, ArrowLeft, Pencil } from 'lucide-react'
 import { api, getErrorMessage } from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
+import { useCanPublish } from '@/hooks/useCanPublish'
 import { Button } from '@/components/ui/Button'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Spinner } from '@/components/ui/Spinner'
+import { Toast, type ToastState } from '@/components/ui/Toast'
 import { BUILDER_COLORS as COLOR } from '@/components/path-builder/colors'
 import { NodeList } from '@/components/path-builder/NodeList'
 import { NodeEditorPanel } from '@/components/path-builder/NodeEditorPanel'
@@ -21,11 +23,6 @@ import { createEmptyPathState, toCreatePayload, type BuilderNode, type PathBuild
 // engine (CLAUDE.md Rule 1) — hardcoded here as a placeholder, mirrors
 // EXCLUDED_ROLES in /admin/paths/page.tsx.
 const EXCLUDED_ROLES = ['associate', 'external']
-
-// TODO: same placeholder as ASSOCIATE_ROLE in Navbar.tsx / LD_ADMIN_ROLE in
-// PathCard.tsx — "who can publish a path" should come from the permission
-// engine (CLAUDE.md Rule 1), not a literal role check.
-const LD_ADMIN_ROLE = 'ld_admin'
 
 type SaveStatus = 'idle' | 'saving' | 'saved'
 
@@ -47,6 +44,7 @@ export default function EditPathPage() {
   const { pathId } = useParams<{ pathId: string }>()
   const router = useRouter()
   const activeRole = useAuthStore((s) => s.activeRole)
+  const { canPublish } = useCanPublish()
   const isExcluded = EXCLUDED_ROLES.includes(activeRole ?? '')
 
   useEffect(() => {
@@ -62,6 +60,7 @@ export default function EditPathPage() {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [toast, setToast] = useState<ToastState | null>(null)
 
   const editorRef = useRef<HTMLDivElement>(null)
   const isFirstRender = useRef(true)
@@ -134,16 +133,37 @@ export default function EditPathPage() {
     try {
       await api.post(`/learning-paths/${pathId}/publish`)
       setStatus('published')
+      setToast({ type: 'success', message: 'Path published — learners can now find it' })
     } catch (err) {
       setError(getErrorMessage(err))
+      setToast({ type: 'error', message: 'Failed to publish — please try again' })
     } finally {
       setIsSaving(false)
     }
   }
 
+  async function handleSubmitForReview() {
+    if (isSaving) return
+    setIsSaving(true)
+    setError(null)
+    try {
+      await api.post(`/learning-paths/${pathId}/submit-review`)
+      setStatus('in_review')
+      setToast({ type: 'success', message: 'Submitted for review — L&D Admin will be notified' })
+    } catch (err) {
+      setError(getErrorMessage(err))
+      setToast({ type: 'error', message: 'Failed to submit for review — please try again' })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  function handleRetire() {
+    setStatus('retired')
+  }
+
   const selectedNode = state.nodes.find((n) => n.id === selectedNodeId) ?? null
   const badge = STATUS_BADGE_STYLES[status]
-  const canPublish = activeRole === LD_ADMIN_ROLE && (status === 'draft' || status === 'in_review')
 
   return (
     <div className="flex flex-col gap-6">
@@ -162,7 +182,11 @@ export default function EditPathPage() {
             {state.title.trim() || 'Untitled path'}
           </h1>
 
-          <span className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium" style={{ backgroundColor: badge.bg, color: badge.color }}>
+          <span
+            className="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
+            style={{ backgroundColor: badge.bg, color: badge.color }}
+            title={status === 'in_review' && !canPublish ? 'Awaiting L&D Admin review' : undefined}
+          >
             {badge.label}
           </span>
 
@@ -184,10 +208,41 @@ export default function EditPathPage() {
           <Button variant="ghost" onClick={handleSave} disabled={isSaving}>
             Save
           </Button>
-          {canPublish && (
+
+          {status === 'draft' && canPublish && (
             <Button onClick={handlePublish} disabled={isSaving}>
               Publish
             </Button>
+          )}
+
+          {status === 'draft' && !canPublish && (
+            <Button onClick={handleSubmitForReview} disabled={isSaving}>
+              Submit for review
+            </Button>
+          )}
+
+          {status === 'in_review' && canPublish && (
+            <button
+              type="button"
+              onClick={handlePublish}
+              disabled={isSaving}
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-md px-4 text-sm font-medium transition-opacity disabled:opacity-50"
+              style={{ background: 'linear-gradient(135deg, #4ade80, #22c55e)', color: '#ffffff' }}
+            >
+              Approve & publish
+            </button>
+          )}
+
+          {status === 'published' && canPublish && (
+            <button
+              type="button"
+              onClick={handleRetire}
+              disabled={isSaving}
+              className="inline-flex h-9 items-center justify-center rounded-md px-4 text-sm font-medium transition-colors hover:bg-[rgba(248,113,113,0.08)] disabled:opacity-50"
+              style={{ border: '0.5px solid rgba(248,113,113,0.3)', color: '#f87171' }}
+            >
+              Retire
+            </button>
           )}
         </div>
 
@@ -225,6 +280,8 @@ export default function EditPathPage() {
           Edit node
         </button>
       )}
+
+      <Toast toast={toast} onDismiss={() => setToast(null)} />
     </div>
   )
 }
